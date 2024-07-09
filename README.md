@@ -1,15 +1,17 @@
 # L1RA: L1-Regularised Rank Assignment in LoRA Fine-Tuning
 L1RA: L1-Regularised Rank Assignment in LoRA Fine-Tuning is a method that dynamically reassigns LoRA ranks during fine-tuning.  This is the repository of MSc thesis held at Politecnico di Milano in Computer Science and Engineering.
 
+L1RA automatically prunes and reassign ranks during the training process of a model. This allows the model to better optimize its rank distribution, instead of being constant like in LoRA. L1RA is aimed to have almost no discernible impact on training time and memory.
+
 ## Basic Usage
 
-Import `L1RAConfig` and `L1raTrainer` from this module. `L1RACofig` is going to replace the usual `LoraConfig` while `L1RATrainer` is a `SFTTrainer` sublcass from package `trl`.
+1. Import `L1RAConfig` and `L1raTrainer` from this module. `L1RACofig` is going to replace the usual `LoraConfig` while `L1RATrainer` is a `SFTTrainer` sublcass from package `trl`.
 
 ```python
 from l1ra import L1RAConfig, L1RATrainer
 ```
 
-Create a config just as you would do with `LoraConfig`. Here is an example:
+2. Create a config just as you would do with `LoraConfig`. Here is an example:
 
 ```python
 config = L1RAConfig(
@@ -22,7 +24,7 @@ config = L1RAConfig(
 )
 ```
 
-You also need to load your model of choiche, tokenizer and dataset. Here is an example:
+3. You also need to load your model of choiche, tokenizer and dataset. Here is an example:
 
 ```python
 from transformers import AutoModelForCausalLM
@@ -35,7 +37,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 dataset = load_dataset("your dataset")
 ```
 
-To train the model you follow the normal procedure you would do to train using the `SFTTrainer` (or just the plain Hugging Face `Trainer`). First create the `TrainingArguments` class and then pass it to the `L1RATrainer` instance. You can directly pass the `L1RAConfig` to the trainer instead of calling the `get_peft_model()` method, because the trainer will automatically take care of it. Additionally, the trainer can automatically tokenize your input. Here is an example:
+4. To train the model you follow the normal procedure you would do to train using the `SFTTrainer` (or just the plain Hugging Face `Trainer`). First create the `TrainingArguments` class and then pass it to the `L1RATrainer` instance. You can directly pass the `L1RAConfig` to the trainer instead of calling the `get_peft_model()` method, because the trainer will automatically take care of it. Additionally, the trainer can automatically tokenize your input. Here is an example:
 
 ```python
 from transformers import TrainingArguments, DataCollatorForLanguageModeling
@@ -58,7 +60,7 @@ training_args = TrainingArguments(
 trainer = L1RATrainer(
     model=model,
     args=training_args,
-    train_dataset=dataset['train'],
+    train_dataset=dataset["train"],
     dataset_text_field="text",
     peft_config=config,
     eval_dataset=dataset["validation"],
