@@ -56,7 +56,10 @@ class L1RATrainer(SFTTrainer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.global_step = 0
+
+    def create_optimizer_and_scheduler(self, num_training_steps: int):
+        self.num_training_steps = num_training_steps
+        return super().create_optimizer_and_scheduler(num_training_steps)
 
     def create_optimizer(self):
         c_vectors = []
@@ -126,5 +129,19 @@ class L1RATrainer(SFTTrainer):
 
         return self.optimizer
 
-    def _is_peft_model(self, _):
-        return True
+    def restart_optimizer(self):
+        learning_rates = []
+        for p in self.optimizer.param_groups:
+            learning_rates.append(p["lr"])
+
+        self.optimizer = self.create_optimizer()
+        for p, lr in zip(self.optimizer.param_groups, learning_rates):
+            p["lr"] = lr
+
+        self.lr_scheduler.optimizer = self.optimizer
+
+    def training_step(self, model, inputs):
+        updated = model.update_ranks(self.state.global_step, self.num_training_steps)
+        if updated:
+            self.restart_optimizer()
+        return super().training_step(model, inputs)

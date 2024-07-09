@@ -40,6 +40,7 @@ class L1RAModel(LoraModel):
             self.trainable_adapter_name = adapter_name
 
         self.rank_evolution = []
+        self.num_training_steps = 0
 
     def _check_new_adapter_config(self, config: LoraConfig) -> None:
         """
@@ -238,12 +239,11 @@ class L1RAModel(LoraModel):
             outputs.loss += sparse_reg_weight * regu_loss
         return outputs
 
-    def update_ranks(self, global_step):
+    def update_ranks(self, global_step, num_training_steps):
         if (
             global_step
-            % self.peft_config[self.trainable_adapter_name].rank_update_steps
+            % int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
             != 0
-            or global_step == 0
         ):
             return False
 
