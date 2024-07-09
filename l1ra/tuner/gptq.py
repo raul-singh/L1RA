@@ -34,10 +34,10 @@ class L1RAQuantLinear(torch.nn.Module, L1RALayer):
                 continue
             lora_A = self.lora_A[active_adapter]
             lora_B = self.lora_B[active_adapter]
-            lora_E = self.lora_E[active_adapter]
+            lora_c = self.lora_c[active_adapter]
             dropout = self.lora_dropout[active_adapter]
             scaling = self.scaling[active_adapter]
-            ranknum = self.ranknum[active_adapter] + 1e-5
+            r = self.r[active_adapter]
 
             requires_conversion = not torch.is_autocast_enabled()
             if requires_conversion:
@@ -45,13 +45,13 @@ class L1RAQuantLinear(torch.nn.Module, L1RALayer):
                 if x.dtype != torch.float32:
                     x = x.float()
 
-            output = (dropout(x) @ (lora_A * lora_E).T @ lora_B.T) * scaling / ranknum
+            output = (dropout(x) @ (lora_A * lora_c).T @ lora_B.T) * scaling / r
 
             if requires_conversion:
                 output = output.to(expected_dtype)
             result += output
         return result
 
-        def __repr__(self) -> str:
-            rep = super().__repr__()
-            return "adalora." + rep
+    def __repr__(self) -> str:
+        rep = super().__repr__()
+        return "l1ra." + rep

@@ -1,32 +1,46 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from aenum import extend_enum
 
 from peft.tuners.lora import LoraConfig
 from peft.utils import PeftType
+from peft.peft_model import PEFT_TYPE_TO_MODEL_MAPPING
+
+from l1ra.tuner.model import L1RAModel
+
+PEFT_TYPE_TO_MODEL_MAPPING.update(
+    {"L1RA": L1RAModel}
+)
+extend_enum(PeftType, "L1RA", "L1RA")
 
 
 @dataclass
 class L1RAConfig(LoraConfig):
     """
-    This is the configuration class to store the configuration of a [`~peft.AdaLora`].
+    This is the configuration class to store the configuration of a [`L1RAModel`].
 
     Args:
-        target_r (`int`): The target average rank of incremental matrix.
-        init_r (`int`): The initial rank for each incremental matrix.
-        tinit (`int`): The steps of initial fine-tuning warmup.
-        tfinal (`int`): The step of final fine-tuning.
-        deltaT (`int`): The time internval between two budget allocations.
-        beta1 (`float`): The hyperparameter of EMA for sensitivity smoothing.
-        beta2 (`float`): The hyperparameter of EMA for undertainty quantification.
-        orth_reg_weight (`float`): The coefficient of orthogonal regularization.
-        total_step (`int`): The total training steps that should be specified before training.
-        rank_pattern (`list`): The allocated rank for each weight matrix by RankAllocator.
+        r (`int`):
+            Lora attention dimension (the "rank").
+        lora_alpha (`int`):
+            The alpha parameter for Lora scaling.
+        l1ra_lambda (`float`):
+            The sparse l1 regularization coefficient.
+        eta_c (`float`):
+            The decoupled learning rate for the gate vectors
+        rank_update_ratio (`float`):
+            Ratio of training steps between each rank update.
+        prune_threshold (`float`):
+            Threshold under which ranks are pruned.
+        reassign (`bool`):
+            Whether to reassign pruned ranks.
+
     """
 
-    sparse_reg_weight: float = field(default=1e-3, metadata={"help": "The sparse l1 regularization coefficient."})
+    l1ra_lambda: float = field(default=1e-3, metadata={"help": "The sparse l1 regularization coefficient."})
+    eta_c: float = field(default=2e-2, metadata={"help": "The decoupled learning rate for the gate vectors"})
+    rank_update_ratio: int = field(default=0.1, metadata={"help": "Ratio of training steps between each rank update."})
     prune_threshold: float = field(default=1e-10, metadata={"help": "Threshold under which ranks are pruned."})
-    rank_update_steps: int = field(default=50, metadata={"help": "How many training steps between each rank update"})
-    reassign: bool = field(default=True, metadata={"help": "Whether to reassign pruned ranks"})
+    reassign: bool = field(default=True, metadata={"help": "Whether to reassign pruned ranks."})
 
     def __post_init__(self):
-        self.peft_type = PeftType.LORA
+        self.peft_type = PeftType.L1RA

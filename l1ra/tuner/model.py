@@ -1,17 +1,3 @@
-# Copyright 2023-present the HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import warnings
 
 import torch
@@ -28,12 +14,11 @@ from peft.utils import (
     get_quantization_config,
 )
 
-from .gptq import SVDQuantLinear
+from .gptq import L1RAQuantLinear
 from .layer import L1RALayer, L1RALinear
 
 
 class L1RAModel(LoraModel):
-    # Note: don't redefine prefix here, it should be inherited from LoraModel
 
     def __init__(self, model, config, adapter_name):
         super().__init__(model, config, adapter_name)
@@ -231,7 +216,7 @@ class L1RAModel(LoraModel):
             # Calculate the orthogonal regularization
             sparse_reg_weight = self.peft_config[
                 self.trainable_adapter_name
-            ].sparse_reg_weight
+            ].l1ra_lambda
 
             if sparse_reg_weight < 0:
                 raise ValueError(
