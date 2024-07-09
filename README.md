@@ -22,7 +22,7 @@ config = L1RAConfig(
 )
 ```
 
-You also need to load your model of choiche, tokenizer and dataset. Here is an example:
+You also need to load your model of choice, tokenizer and dataset. Here is an example:
 
 ```python
 from transformers import AutoModelForCausalLM
