@@ -1,4 +1,6 @@
 import warnings
+from itertools import chain
+import re
 
 import torch
 from transformers.pytorch_utils import Conv1D
@@ -72,9 +74,15 @@ class L1RAModel(LoraModel):
         parent,
         current_key,
     ):
+        # Regexp matching - Find key which matches current target_name in patterns provided
+        pattern_keys = list(chain(lora_config.rank_pattern.keys(), lora_config.alpha_pattern.keys()))
+        target_name_key = next(filter(lambda key: re.match(rf".*\.{key}$", current_key), pattern_keys), current_key)
+        r = lora_config.rank_pattern.get(target_name_key, lora_config.r)
+        alpha = lora_config.alpha_pattern.get(target_name_key, lora_config.lora_alpha)
+
         kwargs = {
-            "r": lora_config.r,
-            "lora_alpha": lora_config.lora_alpha,
+            "r": r,
+            "lora_alpha": alpha,
             "lora_dropout": lora_config.lora_dropout,
             "fan_in_fan_out": lora_config.fan_in_fan_out,
             "init_lora_weights": lora_config.init_lora_weights,
@@ -93,7 +101,7 @@ class L1RAModel(LoraModel):
         if quantization_config is not None:
             kwargs["gptq_quantization_config"] = quantization_config
 
-        # If it is not an AdaLoraLayer, create a new module, else update it with new adapters
+        # If it is not a L1RA, create a new module, else update it with new adapters
         if not isinstance(target, L1RALayer):
             new_module = self._create_new_module(
                 lora_config, adapter_name, target, **kwargs
@@ -159,7 +167,7 @@ class L1RAModel(LoraModel):
         elif AutoGPTQQuantLinear is not None and isinstance(
             target, AutoGPTQQuantLinear
         ):
-            new_module = SVDQuantLinear(target, adapter_name, **kwargs)
+            new_module = L1RAQuantLinear(target, adapter_name, **kwargs)
         else:
             if isinstance(target_base_layer, torch.nn.Linear):
                 if kwargs["fan_in_fan_out"]:
@@ -243,7 +251,8 @@ class L1RAModel(LoraModel):
         if (
             global_step
             % int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
-            != 0
+            != 0 or
+            global_step == 0
         ):
             return False
 
@@ -343,6 +352,8 @@ class L1RAModel(LoraModel):
         for n, p in self.named_parameters():
             if "lora_c" in n:
                 self.rank_distribution.append(p.numel())
+
+        self.rank_evolution.append(self.rank_distribution)
 
         rank_pattern = {n: r for n, r in zip(block_names, self.rank_distribution)}
         self.peft_config[active_adapter].rank_pattern = rank_pattern

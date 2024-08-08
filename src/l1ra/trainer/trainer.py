@@ -55,6 +55,7 @@ class L1RATrainer(SFTTrainer):
     """
 
     def __init__(self, *args, **kwargs):
+        self.real_step = 0
         super().__init__(*args, **kwargs)
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
@@ -141,7 +142,9 @@ class L1RATrainer(SFTTrainer):
         self.lr_scheduler.optimizer = self.optimizer
 
     def training_step(self, model, inputs):
-        updated = model.update_ranks(self.state.global_step, self.num_training_steps)
+        num_training_steps = self.num_training_steps * self.args.gradient_accumulation_steps
+        updated = model.update_ranks(self.real_step, num_training_steps)
         if updated:
             self.restart_optimizer()
+        self.real_step += 1
         return super().training_step(model, inputs)
