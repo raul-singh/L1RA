@@ -15,7 +15,7 @@ PEFT_TYPE_TO_TUNER_MAPPING.update(
 )
 
 
-class L1RATrainer(SFTTrainer):
+class L1RASFTTrainer(SFTTrainer):
     """
     Class definition of the L1RA Trainer based on the Supervised Finetuning Trainer (SFT Trainer).
     This class is a wrapper around the `trl.SFTTranier` class and inherits all of its attributes and methods.
@@ -49,11 +49,109 @@ class L1RATrainer(SFTTrainer):
         preprocess_logits_for_metrics (`Callable[[torch.Tensor, torch.Tensor], torch.Tensor]`):
             The function to use to preprocess the logits before computing the metrics.
         peft_config (`Optional[PeftConfig]`):
-            The PeftConfig object to use to initialize the PeftModel.
+            The L1RAConfig object to use to initialize the L1RAModel.
         formatting_func (`Optional[Callable]`):
             The formatting function to be used for creating the `ConstantLengthDataset`.
     """
 
+    def __init__(self, *args, **kwargs):
+        self.real_step = 0
+        super().__init__(*args, **kwargs)
+
+    def create_optimizer_and_scheduler(self, num_training_steps: int):
+        self.num_training_steps = num_training_steps
+        return super().create_optimizer_and_scheduler(num_training_steps)
+
+    def create_optimizer(self):
+        c_vectors = []
+        AB_parameters = []
+        other_parameters = []
+
+        for name, param in self.model.named_parameters():
+            if "lora_c" in name:
+                c_vectors.append(param)
+            elif param.requires_grad:
+                AB_parameters.append(param)
+            else:
+                other_parameters.append(param)
+
+        optimizer_grouped_parameters = [
+            {
+                "params": c_vectors,
+                "weight_decay": 0.0,
+                "lr": list(self.model.peft_config.values())[0].eta_c
+            },
+            {
+                "params": AB_parameters,
+                "weight_decay": self.args.weight_decay,
+                "lr": self.args.learning_rate
+            },
+            {
+                "params": other_parameters,
+                "weight_decay": 0.0,
+            },
+        ]
+
+        # The following code is partially copied from
+        # github.com/huggingface/transformers/blob/main/src/transformers/trainer.py
+
+        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args, self.model)
+
+        # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+        # e.g. for GaLore optimizer.
+        if "params" in optimizer_kwargs:
+            optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+
+        # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+        # e.g. for LOMO optimizer.
+        if "model" in optimizer_kwargs:
+            optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+        # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+        # to avoid arguments conflicts.
+        if "optimizer_dict" in optimizer_kwargs:
+            optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+
+        self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+        if optimizer_cls.__name__ == "Adam8bit":
+            import bitsandbytes
+
+            manager = bitsandbytes.optim.GlobalOptimManager.get_instance()
+
+            skipped = 0
+            for module in self.model.modules():
+                if isinstance(module, nn.Embedding):
+                    skipped += sum({p.data_ptr(): p.numel() for p in module.parameters()}.values())
+                    logger.info(f"skipped {module}: {skipped/2**20}M params")
+                    manager.register_module_override(module, "weight", {"optim_bits": 32})
+                    logger.debug(f"bitsandbytes: will optimize {module} in fp32")
+            logger.info(f"skipped: {skipped/2**20}M params")
+
+        return self.optimizer
+
+    def restart_optimizer(self):
+        learning_rates = []
+        for p in self.optimizer.param_groups:
+            learning_rates.append(p["lr"])
+
+        self.optimizer = self.create_optimizer()
+        for p, lr in zip(self.optimizer.param_groups, learning_rates):
+            p["lr"] = lr
+
+        self.lr_scheduler.optimizer = self.optimizer
+
+    def training_step(self, model, inputs):
+        num_training_steps = self.num_training_steps * self.args.gradient_accumulation_steps
+        updated = model.update_ranks(self.real_step, num_training_steps)
+        if updated:
+            self.restart_optimizer()
+        self.real_step += 1
+        return super().training_step(model, inputs)
+
+
+# The functiuons overrides are the same as the L1RASFTTrainer
+class L1RATrainer(Trainer):
     def __init__(self, *args, **kwargs):
         self.real_step = 0
         super().__init__(*args, **kwargs)
