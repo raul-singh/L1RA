@@ -1,10 +1,18 @@
 import logging
+from typing import Optional, Tuple, Any
+import importlib.metadata
+from packaging import version
+
 from peft.mapping import PEFT_TYPE_TO_TUNER_MAPPING
 import peft
 from trl import SFTTrainer
 from l1ra.tuner.model import L1RAModel
-from transformers import Trainer
+from transformers import Trainer, TrainingArguments, PreTrainedModel
+from transformers.training_args import OptimizerNames
 from torch import nn
+from transformers.optimization import Adafactor
+from transformers.utils import is_bitsandbytes_available
+import torch
 
 
 logger = logging.getLogger(__name__)
@@ -75,27 +83,33 @@ class L1RASFTTrainer(SFTTrainer):
             else:
                 other_parameters.append(param)
 
+        # TODO Hardcoded default name, must change
+        lasso_coef = self.model.peft_config["default"].l1ra_lambda
+
         optimizer_grouped_parameters = [
             {
                 "params": c_vectors,
                 "weight_decay": 0.0,
-                "lr": list(self.model.peft_config.values())[0].eta_c
+                #"lr": list(self.model.peft_config.values())[0].eta_c
+                "lasso": lasso_coef,
             },
             {
                 "params": AB_parameters,
                 "weight_decay": self.args.weight_decay,
-                "lr": self.args.learning_rate
+                #"lr": self.args.learning_rate
+                "lasso": 0.0,
             },
             {
                 "params": other_parameters,
                 "weight_decay": 0.0,
+                "lasso": 0.0
             },
         ]
 
         # The following code is partially copied from
         # github.com/huggingface/transformers/blob/main/src/transformers/trainer.py
 
-        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args, self.model)
+        optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, self.model)
 
         # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
         # e.g. for GaLore optimizer.
@@ -148,6 +162,108 @@ class L1RASFTTrainer(SFTTrainer):
             self.restart_optimizer()
         self.real_step += 1
         return super().training_step(model, inputs)
+
+    @staticmethod
+    def get_optimizer_cls_and_kwargs(
+        args: TrainingArguments, model: Optional[PreTrainedModel] = None
+    ) -> Tuple[Any, Any]:
+        """
+        Returns the optimizer class and optimizer parameters based on the training arguments.
+
+        Args:
+            args (`transformers.training_args.TrainingArguments`):
+                The training arguments for the training session.
+
+        """
+
+        # parse args.optim_args
+        optim_args = {}
+        if args.optim_args:
+            for mapping in args.optim_args.replace(" ", "").split(","):
+                key, value = mapping.split("=")
+                optim_args[key] = value
+
+        optimizer_kwargs = {"lr": args.learning_rate}
+
+        adam_kwargs = {
+            "betas": (args.adam_beta1, args.adam_beta2),
+            "eps": args.adam_epsilon,
+        }
+        if args.optim == OptimizerNames.ADAFACTOR:
+            optimizer_cls = Adafactor
+            optimizer_kwargs.update({"scale_parameter": False, "relative_step": False})
+        elif args.optim == OptimizerNames.ADAMW_HF:
+            from bitsandbytes.optim import AdamE
+
+            optimizer_cls = AdamE
+            optimizer_kwargs.update(adam_kwargs)
+        elif args.optim in [OptimizerNames.ADAMW_TORCH, OptimizerNames.ADAMW_TORCH_FUSED]:
+            from bitsandbytes.optim import AdamE
+
+            optimizer_cls = AdamE
+            optimizer_kwargs.update(adam_kwargs)
+            if args.optim == OptimizerNames.ADAMW_TORCH_FUSED:
+                optimizer_kwargs.update({"fused": True})
+        elif args.optim in [
+            OptimizerNames.ADAMW_BNB,
+            OptimizerNames.ADAMW_8BIT,
+            OptimizerNames.PAGED_ADAMW,
+            OptimizerNames.PAGED_ADAMW_8BIT,
+            OptimizerNames.LION,
+            OptimizerNames.LION_8BIT,
+            OptimizerNames.PAGED_LION,
+            OptimizerNames.PAGED_LION_8BIT,
+            OptimizerNames.RMSPROP_BNB,
+            OptimizerNames.RMSPROP_8BIT,
+            OptimizerNames.RMSPROP_32BIT,
+        ]:
+            try:
+                from bitsandbytes.optim import AdamE, Lion, RMSprop
+
+                is_paged = False
+                optim_bits = 32
+                optimizer_cls = None
+                additional_optim_kwargs = adam_kwargs
+                if "paged" in args.optim:
+                    is_paged = True
+                if "8bit" in args.optim:
+                    optim_bits = 8
+                if "adam" in args.optim:
+                    optimizer_cls = AdamE
+                elif "lion" in args.optim:
+                    optimizer_cls = Lion
+                    additional_optim_kwargs = {"betas": (args.adam_beta1, args.adam_beta2)}
+                elif "rmsprop" in args.optim:
+                    optimizer_cls = RMSprop
+                    # Above we pass all `adam_kwargs` to the optimizer, here
+                    # we only pass `optim_args` which can be passed by the user.
+                    additional_optim_kwargs = optim_args
+
+                bnb_kwargs = {"optim_bits": optim_bits}
+                if "rmsprop" not in args.optim:
+                    bnb_kwargs["is_paged"] = is_paged
+
+                optimizer_kwargs.update(additional_optim_kwargs)
+                optimizer_kwargs.update(bnb_kwargs)
+            except ImportError:
+                raise ValueError("Trainer tried to instantiate bnb optimizer but bnb is not installed!")
+            if is_bitsandbytes_available() and version.parse(
+                importlib.metadata.version("bitsandbytes")
+            ) < version.parse("0.41.1"):
+                logger.warning(
+                    "You are using 8-bit optimizers with a version of `bitsandbytes` < 0.41.1. "
+                    "It is recommended to update your version as a major bug has been fixed in 8-bit optimizers."
+                )
+        elif args.optim == OptimizerNames.SGD:
+            optimizer_cls = torch.optim.SGD
+        elif args.optim == OptimizerNames.ADAGRAD:
+            optimizer_cls = torch.optim.Adagrad
+        elif args.optim == OptimizerNames.RMSPROP:
+            optimizer_cls = torch.optim.RMSprop
+
+        else:
+            raise ValueError(f"Trainer cannot instantiate unsupported optimizer: {args.optim}")
+        return optimizer_cls, optimizer_kwargs
 
 
 # The functiuons overrides are the same as the L1RASFTTrainer
@@ -173,27 +289,33 @@ class L1RATrainer(Trainer):
             else:
                 other_parameters.append(param)
 
+        # TODO Hardcoded default name, must change
+        lasso_coef = self.model.peft_config["default"].l1ra_lambda
+
         optimizer_grouped_parameters = [
             {
                 "params": c_vectors,
                 "weight_decay": 0.0,
-                "lr": list(self.model.peft_config.values())[0].eta_c
+                #"lr": list(self.model.peft_config.values())[0].eta_c
+                "lasso": lasso_coef,
             },
             {
                 "params": AB_parameters,
                 "weight_decay": self.args.weight_decay,
-                "lr": self.args.learning_rate
+                #"lr": self.args.learning_rate
+                "lasso": 0.0,
             },
             {
                 "params": other_parameters,
                 "weight_decay": 0.0,
+                "lasso": 0.0
             },
         ]
 
         # The following code is partially copied from
         # github.com/huggingface/transformers/blob/main/src/transformers/trainer.py
 
-        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args, self.model)
+        optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, self.model)
 
         # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
         # e.g. for GaLore optimizer.
@@ -246,3 +368,105 @@ class L1RATrainer(Trainer):
             self.restart_optimizer()
         self.real_step += 1
         return super().training_step(model, inputs)
+
+    @staticmethod
+    def get_optimizer_cls_and_kwargs(
+        args: TrainingArguments, model: Optional[PreTrainedModel] = None
+    ) -> Tuple[Any, Any]:
+        """
+        Returns the optimizer class and optimizer parameters based on the training arguments.
+
+        Args:
+            args (`transformers.training_args.TrainingArguments`):
+                The training arguments for the training session.
+
+        """
+
+        # parse args.optim_args
+        optim_args = {}
+        if args.optim_args:
+            for mapping in args.optim_args.replace(" ", "").split(","):
+                key, value = mapping.split("=")
+                optim_args[key] = value
+
+        optimizer_kwargs = {"lr": args.learning_rate}
+
+        adam_kwargs = {
+            "betas": (args.adam_beta1, args.adam_beta2),
+            "eps": args.adam_epsilon,
+        }
+        if args.optim == OptimizerNames.ADAFACTOR:
+            optimizer_cls = Adafactor
+            optimizer_kwargs.update({"scale_parameter": False, "relative_step": False})
+        elif args.optim == OptimizerNames.ADAMW_HF:
+            from bitsandbytes.optim import AdamE
+
+            optimizer_cls = AdamE
+            optimizer_kwargs.update(adam_kwargs)
+        elif args.optim in [OptimizerNames.ADAMW_TORCH, OptimizerNames.ADAMW_TORCH_FUSED]:
+            from bitsandbytes.optim import AdamE
+
+            optimizer_cls = AdamE
+            optimizer_kwargs.update(adam_kwargs)
+            if args.optim == OptimizerNames.ADAMW_TORCH_FUSED:
+                optimizer_kwargs.update({"fused": True})
+        elif args.optim in [
+            OptimizerNames.ADAMW_BNB,
+            OptimizerNames.ADAMW_8BIT,
+            OptimizerNames.PAGED_ADAMW,
+            OptimizerNames.PAGED_ADAMW_8BIT,
+            OptimizerNames.LION,
+            OptimizerNames.LION_8BIT,
+            OptimizerNames.PAGED_LION,
+            OptimizerNames.PAGED_LION_8BIT,
+            OptimizerNames.RMSPROP_BNB,
+            OptimizerNames.RMSPROP_8BIT,
+            OptimizerNames.RMSPROP_32BIT,
+        ]:
+            try:
+                from bitsandbytes.optim import AdamE, Lion, RMSprop
+
+                is_paged = False
+                optim_bits = 32
+                optimizer_cls = None
+                additional_optim_kwargs = adam_kwargs
+                if "paged" in args.optim:
+                    is_paged = True
+                if "8bit" in args.optim:
+                    optim_bits = 8
+                if "adam" in args.optim:
+                    optimizer_cls = AdamE
+                elif "lion" in args.optim:
+                    optimizer_cls = Lion
+                    additional_optim_kwargs = {"betas": (args.adam_beta1, args.adam_beta2)}
+                elif "rmsprop" in args.optim:
+                    optimizer_cls = RMSprop
+                    # Above we pass all `adam_kwargs` to the optimizer, here
+                    # we only pass `optim_args` which can be passed by the user.
+                    additional_optim_kwargs = optim_args
+
+                bnb_kwargs = {"optim_bits": optim_bits}
+                if "rmsprop" not in args.optim:
+                    bnb_kwargs["is_paged"] = is_paged
+
+                optimizer_kwargs.update(additional_optim_kwargs)
+                optimizer_kwargs.update(bnb_kwargs)
+            except ImportError:
+                raise ValueError("Trainer tried to instantiate bnb optimizer but bnb is not installed!")
+            if is_bitsandbytes_available() and version.parse(
+                importlib.metadata.version("bitsandbytes")
+            ) < version.parse("0.41.1"):
+                logger.warning(
+                    "You are using 8-bit optimizers with a version of `bitsandbytes` < 0.41.1. "
+                    "It is recommended to update your version as a major bug has been fixed in 8-bit optimizers."
+                )
+        elif args.optim == OptimizerNames.SGD:
+            optimizer_cls = torch.optim.SGD
+        elif args.optim == OptimizerNames.ADAGRAD:
+            optimizer_cls = torch.optim.Adagrad
+        elif args.optim == OptimizerNames.RMSPROP:
+            optimizer_cls = torch.optim.RMSprop
+
+        else:
+            raise ValueError(f"Trainer cannot instantiate unsupported optimizer: {args.optim}")
+        return optimizer_cls, optimizer_kwargs

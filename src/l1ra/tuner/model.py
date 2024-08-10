@@ -231,7 +231,7 @@ class L1RAModel(LoraModel):
                 raise ValueError(
                     "sparse_reg_weight should be greater or equal than 0. "
                 )
-
+            """
             # L1 regularization computation
             regu_loss = 0
             num_param = 0
@@ -245,6 +245,7 @@ class L1RAModel(LoraModel):
                 regu_loss = 0
 
             outputs.loss += sparse_reg_weight * regu_loss
+            """
         return outputs
 
     def update_ranks(self, global_step, num_training_steps):
@@ -360,6 +361,8 @@ class L1RAModel(LoraModel):
 
         torch.cuda.empty_cache()
         self.reassigned_ranks = spare_ranks
+
+        print(spare_ranks)
 
         return True
 
