@@ -25,6 +25,8 @@ class L1RAModel(LoraModel):
     def __init__(self, model, config, adapter_name):
         super().__init__(model, config, adapter_name)
 
+        self.exclude_pruned = self.peft_config[adapter_name].exclude_pruned
+
         traininable_mode_counter = 0
         for config in self.peft_config.values():
             if not config.inference_mode:
@@ -248,7 +250,29 @@ class L1RAModel(LoraModel):
             """
         return outputs
 
+
+    def normalize_c(self):
+        with torch.no_grad():
+            A_matrix = None
+            for n, p in self.model.named_parameters():
+                if "lora_A" in n and self.trainable_adapter_name in n:
+                    A_matrix = p
+
+                if "lora_c" in n and self.trainable_adapter_name in n:
+
+                    if A_matrix == None:
+                        raise RuntimeError("Matrix A not found before vector c.")
+
+                    scale_factor = p.max()
+                    p.div_(scale_factor)
+                    A_matrix.mul_(scale_factor)
+
+                    A_matrix = None
+
     def update_ranks(self, global_step, num_training_steps):
+
+        #self.normalize_c()
+
         if (
             global_step
             % int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
@@ -314,8 +338,9 @@ class L1RAModel(LoraModel):
             min_values = torch.stack(min_values)
             to_expand = min_values.argsort(descending=True)
 
-            for p in pruned_idxs:
-                to_expand = to_expand[to_expand != p]
+            if self.exclude_pruned:
+                for p in pruned_idxs:
+                    to_expand = to_expand[to_expand != p]
 
             if len(to_expand) > 0:
                 with torch.no_grad():
@@ -362,7 +387,9 @@ class L1RAModel(LoraModel):
         torch.cuda.empty_cache()
         self.reassigned_ranks = spare_ranks
 
-        print(spare_ranks)
+        print(f"Reassigned: {spare_ranks}")
+        if spare_ranks == 0:
+            return False
 
         return True
 

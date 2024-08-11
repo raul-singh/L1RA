@@ -90,13 +90,13 @@ class L1RASFTTrainer(SFTTrainer):
             {
                 "params": c_vectors,
                 "weight_decay": 0.0,
-                #"lr": list(self.model.peft_config.values())[0].eta_c
+                "lr": list(self.model.peft_config.values())[0].eta_c,
                 "lasso": lasso_coef,
             },
             {
                 "params": AB_parameters,
                 "weight_decay": self.args.weight_decay,
-                #"lr": self.args.learning_rate
+                "lr": self.args.learning_rate,
                 "lasso": 0.0,
             },
             {
@@ -143,6 +143,11 @@ class L1RASFTTrainer(SFTTrainer):
             logger.info(f"skipped: {skipped/2**20}M params")
 
         return self.optimizer
+
+    def create_scheduler(self, *args, **kwargs):
+        scheduler = super().create_scheduler(*args, **kwargs)
+        scheduler.lr_lambdas[0] = lambda _: 1
+        return scheduler
 
     def restart_optimizer(self):
         learning_rates = []
@@ -296,13 +301,13 @@ class L1RATrainer(Trainer):
             {
                 "params": c_vectors,
                 "weight_decay": 0.0,
-                #"lr": list(self.model.peft_config.values())[0].eta_c
+                "lr": list(self.model.peft_config.values())[0].eta_c,
                 "lasso": lasso_coef,
             },
             {
                 "params": AB_parameters,
                 "weight_decay": self.args.weight_decay,
-                #"lr": self.args.learning_rate
+                "lr": self.args.learning_rate,
                 "lasso": 0.0,
             },
             {
@@ -349,6 +354,11 @@ class L1RATrainer(Trainer):
             logger.info(f"skipped: {skipped/2**20}M params")
 
         return self.optimizer
+
+    def create_scheduler(self, *args, **kwargs):
+        scheduler = super().create_scheduler(*args, **kwargs)
+        scheduler.lr_lambdas[0] = lambda _: 1
+        return scheduler
 
     def restart_optimizer(self):
         learning_rates = []
