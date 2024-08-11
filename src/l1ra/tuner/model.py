@@ -387,7 +387,6 @@ class L1RAModel(LoraModel):
         torch.cuda.empty_cache()
         self.reassigned_ranks = spare_ranks
 
-        print(f"Reassigned: {spare_ranks}")
         if spare_ranks == 0:
             return False
 
