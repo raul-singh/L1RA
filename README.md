@@ -43,7 +43,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 dataset = load_dataset("your dataset")
 ```
 
-5. To train the model you follow the normal procedure you would do to train using the `SFTTrainer` (or just the plain Hugging Face `Trainer`). First create the `TrainingArguments` class and then pass it to the `L1RATrainer` instance. You can directly pass the `L1RAConfig` to the trainer instead of calling the `get_peft_model()` method, because the trainer will automatically take care of it. Additionally, the trainer can automatically tokenize your input. Here is an example:
+5. To train the model you follow the normal procedure you would do to train using the `SFTTrainer` (or just the plain Hugging Face `Trainer`). First create the `TrainingArguments` class and then pass it to the `L1RASFTTrainer` instance. You can directly pass the `L1RAConfig` to the trainer instead of calling the `get_peft_model()` method, because the trainer will automatically take care of it. Additionally, the trainer can automatically tokenize your input. Here is an example:
 
 ```python
 from transformers import TrainingArguments, DataCollatorForLanguageModeling
@@ -80,3 +80,8 @@ trainer.train()
 ```
 
 NOTE: as of right now, L1RA does not support saving and loading the model, so it's mandatory to have `save_strategy="no"` when defining `TrainingArguments`.
+
+There is also `L1RATrainer` available, which is an extension of the basic `Trainer` from the `transformers` library. The interface is the same, and it can be used whenever the `L1RASFTTraner` does not fit the job.
+
+### Optimizer Note
+L1RA makes use of the experimental `AdamE` optimizer. As of right now, `L1RATrainer` and `L1RASFTTrainer` will force the use of `AdamE` when specifying another AdamW optimizer like `adamw` or `adamw-torch`.
