@@ -1,4 +1,6 @@
 import warnings
+from itertools import chain
+import re
 
 import torch
 from transformers.pytorch_utils import Conv1D
@@ -22,6 +24,8 @@ class L1RAModel(LoraModel):
 
     def __init__(self, model, config, adapter_name):
         super().__init__(model, config, adapter_name)
+
+        self.exclude_pruned = self.peft_config[adapter_name].exclude_pruned
 
         traininable_mode_counter = 0
         for config in self.peft_config.values():
@@ -72,9 +76,15 @@ class L1RAModel(LoraModel):
         parent,
         current_key,
     ):
+        # Regexp matching - Find key which matches current target_name in patterns provided
+        pattern_keys = list(chain(lora_config.rank_pattern.keys(), lora_config.alpha_pattern.keys()))
+        target_name_key = next(filter(lambda key: re.match(rf".*\.{key}$", current_key), pattern_keys), current_key)
+        r = lora_config.rank_pattern.get(target_name_key, lora_config.r)
+        alpha = lora_config.alpha_pattern.get(target_name_key, lora_config.lora_alpha)
+
         kwargs = {
-            "r": lora_config.r,
-            "lora_alpha": lora_config.lora_alpha,
+            "r": r,
+            "lora_alpha": alpha,
             "lora_dropout": lora_config.lora_dropout,
             "fan_in_fan_out": lora_config.fan_in_fan_out,
             "init_lora_weights": lora_config.init_lora_weights,
@@ -93,7 +103,7 @@ class L1RAModel(LoraModel):
         if quantization_config is not None:
             kwargs["gptq_quantization_config"] = quantization_config
 
-        # If it is not an AdaLoraLayer, create a new module, else update it with new adapters
+        # If it is not a L1RA, create a new module, else update it with new adapters
         if not isinstance(target, L1RALayer):
             new_module = self._create_new_module(
                 lora_config, adapter_name, target, **kwargs
@@ -159,7 +169,7 @@ class L1RAModel(LoraModel):
         elif AutoGPTQQuantLinear is not None and isinstance(
             target, AutoGPTQQuantLinear
         ):
-            new_module = SVDQuantLinear(target, adapter_name, **kwargs)
+            new_module = L1RAQuantLinear(target, adapter_name, **kwargs)
         else:
             if isinstance(target_base_layer, torch.nn.Linear):
                 if kwargs["fan_in_fan_out"]:
@@ -223,7 +233,7 @@ class L1RAModel(LoraModel):
                 raise ValueError(
                     "sparse_reg_weight should be greater or equal than 0. "
                 )
-
+            """
             # L1 regularization computation
             regu_loss = 0
             num_param = 0
@@ -237,13 +247,37 @@ class L1RAModel(LoraModel):
                 regu_loss = 0
 
             outputs.loss += sparse_reg_weight * regu_loss
+            """
         return outputs
 
+
+    def normalize_c(self):
+        with torch.no_grad():
+            A_matrix = None
+            for n, p in self.model.named_parameters():
+                if "lora_A" in n and self.trainable_adapter_name in n:
+                    A_matrix = p
+
+                if "lora_c" in n and self.trainable_adapter_name in n:
+
+                    if A_matrix == None:
+                        raise RuntimeError("Matrix A not found before vector c.")
+
+                    scale_factor = p.max()
+                    p.div_(scale_factor)
+                    A_matrix.mul_(scale_factor)
+
+                    A_matrix = None
+
     def update_ranks(self, global_step, num_training_steps):
+
+        #self.normalize_c()
+
         if (
             global_step
             % int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
-            != 0
+            != 0 or
+            global_step == 0
         ):
             return False
 
@@ -304,8 +338,9 @@ class L1RAModel(LoraModel):
             min_values = torch.stack(min_values)
             to_expand = min_values.argsort(descending=True)
 
-            for p in pruned_idxs:
-                to_expand = to_expand[to_expand != p]
+            if self.exclude_pruned:
+                for p in pruned_idxs:
+                    to_expand = to_expand[to_expand != p]
 
             if len(to_expand) > 0:
                 with torch.no_grad():
@@ -344,11 +379,16 @@ class L1RAModel(LoraModel):
             if "lora_c" in n:
                 self.rank_distribution.append(p.numel())
 
+        self.rank_evolution.append(self.rank_distribution)
+
         rank_pattern = {n: r for n, r in zip(block_names, self.rank_distribution)}
         self.peft_config[active_adapter].rank_pattern = rank_pattern
 
         torch.cuda.empty_cache()
         self.reassigned_ranks = spare_ranks
+
+        if spare_ranks == 0:
+            return False
 
         return True
 

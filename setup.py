@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='l1ra',
-    version='0.0.1',
+    version='0.0.2',
     description='Dynamic rank reassignment based on LoRA',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
@@ -20,7 +20,7 @@ setup(
         'Topic :: Software Development :: Libraries',
         'License :: OSI Approved :: BSD 3-Clause License',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.12',
     ],
-    python_requires='>=3.8',
+    python_requires='>=3.12',
 )

@@ -1,1 +1,1 @@
-from .trainer import L1RATrainer
+from .trainer import L1RATrainer, L1RASFTTrainer
