@@ -61,9 +61,10 @@ training_args = TrainingArguments(
     bf16=True,
     max_grad_norm=0.3,
     optim="paged_adamw_8bit",
+    save_strategy="no",
 )
 
-trainer = L1RATrainer(
+trainer = L1RASFTTrainer(
     model=model,
     args=training_args,
     train_dataset=dataset["train"],
@@ -77,3 +78,5 @@ trainer = L1RATrainer(
 
 trainer.train()
 ```
+
+NOTE: as of right now, L1RA does not support saving and loading the model, so it's mandatory to have `save_strategy="no"` when defining `TrainingArguments`.
