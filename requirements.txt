@@ -1,2 +1,3 @@
 torch>=2.3.0
+bitsandbytes @ git+https://github.com/vincenzo-scotti/bitsandbytes.git@dev-adame
 peft>=0.11
