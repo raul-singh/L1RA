@@ -1,4 +1,5 @@
 # L1RA: L1-Regularised Rank Assignment in LoRA Fine-Tuning
+
 L1RA: L1-Regularised Rank Assignment in LoRA Fine-Tuning is a method that dynamically reassigns LoRA ranks during fine-tuning.  This is the repository of MSc thesis held at Politecnico di Milano in Computer Science and Engineering.
 
 L1RA automatically prunes and reassign ranks during the training process of a model. This allows the model to better optimize its rank distribution, instead of being constant like in LoRA. L1RA is aimed to have almost no discernible impact on training time and memory.
@@ -30,7 +31,7 @@ config = L1RAConfig(
 )
 ```
 
-4. You also need to load your model of choiche, tokenizer and dataset. Here is an example:
+4. You also need to load your model of choice, tokenizer and dataset. Here is an example:
 
 ```python
 from transformers import AutoModelForCausalLM
@@ -84,4 +85,5 @@ NOTE: as of right now, L1RA does not support saving and loading the model, so it
 There is also `L1RATrainer` available, which is an extension of the basic `Trainer` from the `transformers` library. The interface is the same, and it can be used whenever the `L1RASFTTraner` does not fit the job.
 
 ### Optimizer Note
+
 L1RA makes use of the experimental `AdamE` optimizer. As of right now, `L1RATrainer` and `L1RASFTTrainer` will force the use of `AdamE` when specifying another AdamW optimizer like `adamw` or `adamw-torch`.
