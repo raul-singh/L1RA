@@ -1,19 +1,16 @@
-import logging
-from typing import Optional, Tuple, Any
 import importlib.metadata
+import logging
+from enum import Enum
+from typing import Any, Optional, Tuple
+
 from packaging import version
-
 from peft.mapping import PEFT_TYPE_TO_TUNER_MAPPING
-import peft
-from trl import SFTTrainer
-from l1ra.tuner.model import L1RAModel
-from transformers import Trainer, TrainingArguments, PreTrainedModel
-from transformers.training_args import OptimizerNames
 from torch import nn
-from transformers.optimization import Adafactor
+from transformers import PreTrainedModel, Trainer, TrainingArguments
 from transformers.utils import is_bitsandbytes_available
-import torch
+from trl import SFTTrainer
 
+from l1ra.tuner.model import L1RAModel
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +18,14 @@ logger = logging.getLogger(__name__)
 PEFT_TYPE_TO_TUNER_MAPPING.update(
     {"L1RA": L1RAModel}
 )
+
+class AdamEOptimizers(Enum):
+    ADAME = "adame"
+    ADAME_BNB = "adame_bnb"
+    ADAME_8BIT = "adame_8bit"
+    ADAME_BNB_8BIT = "adame_bnb_8bit"
+    PAGED_ADAME = "paged_adame_32bit"
+    PAGED_ADAME_8BIT = "paged_adame_8bit"
 
 
 class L1RASFTTrainer(SFTTrainer):
@@ -181,6 +186,14 @@ class L1RASFTTrainer(SFTTrainer):
 
         """
 
+        if args.optim not in [o.value for o in AdamEOptimizers]:
+            logger.warning(
+                "You are using the L1RA trainer wihtout using the AdamE optimizer. "
+                "If you are training a L1RA model, you should use the AdamE optimizer or "
+                "one of its variants, otherwise L1RA won't work."
+                )
+            return Trainer.get_optimizer_cls_and_kwargs(args, model)
+
         # parse args.optim_args
         optim_args = {}
         if args.optim_args:
@@ -194,36 +207,20 @@ class L1RASFTTrainer(SFTTrainer):
             "betas": (args.adam_beta1, args.adam_beta2),
             "eps": args.adam_epsilon,
         }
-        if args.optim == OptimizerNames.ADAFACTOR:
-            optimizer_cls = Adafactor
-            optimizer_kwargs.update({"scale_parameter": False, "relative_step": False})
-        elif args.optim == OptimizerNames.ADAMW_HF:
-            from bitsandbytes.optim import AdamE
+        if args.optim in [AdamEOptimizers.ADAME, AdamEOptimizers.ADAME_BNB]:
+            from bitsandbytes import AdamE
 
             optimizer_cls = AdamE
             optimizer_kwargs.update(adam_kwargs)
-        elif args.optim in [OptimizerNames.ADAMW_TORCH, OptimizerNames.ADAMW_TORCH_FUSED]:
-            from bitsandbytes.optim import AdamE
 
-            optimizer_cls = AdamE
-            optimizer_kwargs.update(adam_kwargs)
-            if args.optim == OptimizerNames.ADAMW_TORCH_FUSED:
-                optimizer_kwargs.update({"fused": True})
         elif args.optim in [
-            OptimizerNames.ADAMW_BNB,
-            OptimizerNames.ADAMW_8BIT,
-            OptimizerNames.PAGED_ADAMW,
-            OptimizerNames.PAGED_ADAMW_8BIT,
-            OptimizerNames.LION,
-            OptimizerNames.LION_8BIT,
-            OptimizerNames.PAGED_LION,
-            OptimizerNames.PAGED_LION_8BIT,
-            OptimizerNames.RMSPROP_BNB,
-            OptimizerNames.RMSPROP_8BIT,
-            OptimizerNames.RMSPROP_32BIT,
+            AdamEOptimizers.ADAME_BNB_8BIT,
+            AdamEOptimizers.ADAME_8BIT,
+            AdamEOptimizers.PAGED_ADAME,
+            AdamEOptimizers.PAGED_ADAME_8BIT,
         ]:
             try:
-                from bitsandbytes.optim import AdamE, Lion, RMSprop
+                from bitsandbytes.optim import AdamE
 
                 is_paged = False
                 optim_bits = 32
@@ -235,14 +232,6 @@ class L1RASFTTrainer(SFTTrainer):
                     optim_bits = 8
                 if "adam" in args.optim:
                     optimizer_cls = AdamE
-                elif "lion" in args.optim:
-                    optimizer_cls = Lion
-                    additional_optim_kwargs = {"betas": (args.adam_beta1, args.adam_beta2)}
-                elif "rmsprop" in args.optim:
-                    optimizer_cls = RMSprop
-                    # Above we pass all `adam_kwargs` to the optimizer, here
-                    # we only pass `optim_args` which can be passed by the user.
-                    additional_optim_kwargs = optim_args
 
                 bnb_kwargs = {"optim_bits": optim_bits}
                 if "rmsprop" not in args.optim:
@@ -251,7 +240,7 @@ class L1RASFTTrainer(SFTTrainer):
                 optimizer_kwargs.update(additional_optim_kwargs)
                 optimizer_kwargs.update(bnb_kwargs)
             except ImportError:
-                raise ValueError("Trainer tried to instantiate bnb optimizer but bnb is not installed!")
+                raise ValueError("Trainer tried to instantiate bnb optimizer but `bitsandbytes` is not installed!")
             if is_bitsandbytes_available() and version.parse(
                 importlib.metadata.version("bitsandbytes")
             ) < version.parse("0.41.1"):
@@ -259,19 +248,12 @@ class L1RASFTTrainer(SFTTrainer):
                     "You are using 8-bit optimizers with a version of `bitsandbytes` < 0.41.1. "
                     "It is recommended to update your version as a major bug has been fixed in 8-bit optimizers."
                 )
-        elif args.optim == OptimizerNames.SGD:
-            optimizer_cls = torch.optim.SGD
-        elif args.optim == OptimizerNames.ADAGRAD:
-            optimizer_cls = torch.optim.Adagrad
-        elif args.optim == OptimizerNames.RMSPROP:
-            optimizer_cls = torch.optim.RMSprop
-
         else:
             raise ValueError(f"Trainer cannot instantiate unsupported optimizer: {args.optim}")
         return optimizer_cls, optimizer_kwargs
 
 
-# The functiuons overrides are the same as the L1RASFTTrainer
+# The functions overrides are the same as the L1RASFTTrainer
 class L1RATrainer(Trainer):
     def __init__(self, *args, **kwargs):
         self.real_step = 0
@@ -392,6 +374,14 @@ class L1RATrainer(Trainer):
 
         """
 
+        if args.optim not in [o.value for o in AdamEOptimizers]:
+            logger.warning(
+                "You are using the L1RA trainer wihtout using the AdamE optimizer. "
+                "If you are training a L1RA model, you should use the AdamE optimizer or "
+                "one of its variants, otherwise L1RA won't work."
+                )
+            return Trainer.get_optimizer_cls_and_kwargs(args, model)
+
         # parse args.optim_args
         optim_args = {}
         if args.optim_args:
@@ -405,36 +395,20 @@ class L1RATrainer(Trainer):
             "betas": (args.adam_beta1, args.adam_beta2),
             "eps": args.adam_epsilon,
         }
-        if args.optim == OptimizerNames.ADAFACTOR:
-            optimizer_cls = Adafactor
-            optimizer_kwargs.update({"scale_parameter": False, "relative_step": False})
-        elif args.optim == OptimizerNames.ADAMW_HF:
-            from bitsandbytes.optim import AdamE
+        if args.optim in [AdamEOptimizers.ADAME, AdamEOptimizers.ADAME_BNB]:
+            from bitsandbytes import AdamE
 
             optimizer_cls = AdamE
             optimizer_kwargs.update(adam_kwargs)
-        elif args.optim in [OptimizerNames.ADAMW_TORCH, OptimizerNames.ADAMW_TORCH_FUSED]:
-            from bitsandbytes.optim import AdamE
 
-            optimizer_cls = AdamE
-            optimizer_kwargs.update(adam_kwargs)
-            if args.optim == OptimizerNames.ADAMW_TORCH_FUSED:
-                optimizer_kwargs.update({"fused": True})
         elif args.optim in [
-            OptimizerNames.ADAMW_BNB,
-            OptimizerNames.ADAMW_8BIT,
-            OptimizerNames.PAGED_ADAMW,
-            OptimizerNames.PAGED_ADAMW_8BIT,
-            OptimizerNames.LION,
-            OptimizerNames.LION_8BIT,
-            OptimizerNames.PAGED_LION,
-            OptimizerNames.PAGED_LION_8BIT,
-            OptimizerNames.RMSPROP_BNB,
-            OptimizerNames.RMSPROP_8BIT,
-            OptimizerNames.RMSPROP_32BIT,
+            AdamEOptimizers.ADAME_BNB_8BIT,
+            AdamEOptimizers.ADAME_8BIT,
+            AdamEOptimizers.PAGED_ADAME,
+            AdamEOptimizers.PAGED_ADAME_8BIT,
         ]:
             try:
-                from bitsandbytes.optim import AdamE, Lion, RMSprop
+                from bitsandbytes.optim import AdamE
 
                 is_paged = False
                 optim_bits = 32
@@ -446,14 +420,6 @@ class L1RATrainer(Trainer):
                     optim_bits = 8
                 if "adam" in args.optim:
                     optimizer_cls = AdamE
-                elif "lion" in args.optim:
-                    optimizer_cls = Lion
-                    additional_optim_kwargs = {"betas": (args.adam_beta1, args.adam_beta2)}
-                elif "rmsprop" in args.optim:
-                    optimizer_cls = RMSprop
-                    # Above we pass all `adam_kwargs` to the optimizer, here
-                    # we only pass `optim_args` which can be passed by the user.
-                    additional_optim_kwargs = optim_args
 
                 bnb_kwargs = {"optim_bits": optim_bits}
                 if "rmsprop" not in args.optim:
@@ -462,7 +428,7 @@ class L1RATrainer(Trainer):
                 optimizer_kwargs.update(additional_optim_kwargs)
                 optimizer_kwargs.update(bnb_kwargs)
             except ImportError:
-                raise ValueError("Trainer tried to instantiate bnb optimizer but bnb is not installed!")
+                raise ValueError("Trainer tried to instantiate bnb optimizer but `bitsandbytes` is not installed!")
             if is_bitsandbytes_available() and version.parse(
                 importlib.metadata.version("bitsandbytes")
             ) < version.parse("0.41.1"):
@@ -470,13 +436,6 @@ class L1RATrainer(Trainer):
                     "You are using 8-bit optimizers with a version of `bitsandbytes` < 0.41.1. "
                     "It is recommended to update your version as a major bug has been fixed in 8-bit optimizers."
                 )
-        elif args.optim == OptimizerNames.SGD:
-            optimizer_cls = torch.optim.SGD
-        elif args.optim == OptimizerNames.ADAGRAD:
-            optimizer_cls = torch.optim.Adagrad
-        elif args.optim == OptimizerNames.RMSPROP:
-            optimizer_cls = torch.optim.RMSprop
-
         else:
             raise ValueError(f"Trainer cannot instantiate unsupported optimizer: {args.optim}")
         return optimizer_cls, optimizer_kwargs
