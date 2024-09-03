@@ -1,0 +1,6 @@
+[submodule "submodules/bitsandbytes"]
+	path = submodules/bitsandbytes
+	url = https://github.com/vincenzo-scotti/bitsandbytes.git
+[submodule "submodules/memory-gelato"]
+	path = submodules/memory-gelato
+	url = https://github.com/raul-singh/memory-gelato.git
