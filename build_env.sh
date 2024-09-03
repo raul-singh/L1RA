@@ -53,6 +53,7 @@ git submodule update
 # Build BNB from source (https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/docs/source/installation.mdx)
 cd ./submodules/bitsandbytes
 ## Install CUDA
+conda run -n ${env_name} conda install cuda -c nvidia/label/cuda-12.2.2
 conda run -n ${env_name} bash install_cuda.sh ${cuda_version} ${CONDA_PREFIX}/envs/${env_name}/local 1
 conda run -n ${env_name} conda env config vars set BNB_CUDA_VERSION=${cuda_version}
 conda run -n ${env_name} conda env config vars set LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${CONDA_PREFIX}/envs/${env_name}/local/cuda-${cuda_version::2}.${cuda_version:2}
@@ -60,5 +61,6 @@ conda run -n ${env_name} conda env config vars set LD_LIBRARY_PATH=${LD_LIBRARY_
 conda run -n ${env_name} pip install -r requirements-dev.txt
 conda run -n ${env_name} cmake -DCOMPUTE_BACKEND=cuda -S .
 conda run -n ${env_name} make
+conda run -n ${env_name} pip install -e .
 
 exit 0

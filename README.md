@@ -93,11 +93,13 @@ There is also `L1RATrainer` available, which is an extension of the basic `Train
 
 As for now, L1RA requires a custom environment to run properly.
 We provide a script to install a conda environment to run our code.
-Make sure you have a CUDA compatible GPU and install the building tools:
-
-```bash
-apt install -y build-essential cmake
-```
+Make sure you have:
+- a CUDA compatible GPU 
+- [Anaconda](https://www.anaconda.com/) installed, you can get it from https://www.anaconda.com/download/ 
+- building tools installed, you can install them running:
+  ```bash
+  apt install -y build-essential cmake
+  ```
 
 Run the following script **from the main repository directory** to build a conda environment named `l1ra` with CUDA 12.2:
 
