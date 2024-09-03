@@ -84,7 +84,8 @@ trainer = L1RASFTTrainer(
 trainer.train()
 ```
 
-NOTE: as of right now, L1RA does not support saving and loading the model, so it's mandatory to have `save_strategy="no"` when defining `TrainingArguments`.
+> [!NOTE]  
+> As of right now, L1RA does not support saving and loading the model, so it's mandatory to have `save_strategy="no"` when defining `TrainingArguments`.
 
 There is also `L1RATrainer` available, which is an extension of the basic `Trainer` from the `transformers` library. The interface is the same, and it can be used whenever the `L1RASFTTraner` does not fit the job.
 
