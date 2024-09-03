@@ -6,6 +6,10 @@ L1RA automatically prunes and reassign ranks during the training process of a mo
 
 ## Basic Usage
 
+> [!WARNING]  
+> Before using L1RA make sure to have a proper environment installed. 
+> Refer to [Section "Build environment"](#build-environment) for further details.
+
 1. Install the `l1ra` package:
 
 ```sh
@@ -84,6 +88,24 @@ NOTE: as of right now, L1RA does not support saving and loading the model, so it
 
 There is also `L1RATrainer` available, which is an extension of the basic `Trainer` from the `transformers` library. The interface is the same, and it can be used whenever the `L1RASFTTraner` does not fit the job.
 
-### Optimizer Note
+## Build environment
 
-L1RA makes use of the experimental `AdamE` optimizer. As of right now, `L1RATrainer` and `L1RASFTTrainer` will force the use of `AdamE` when specifying another AdamW optimizer like `adamw` or `adamw-torch`.
+As for now, L1RA requires a custom environment to run properly.
+We provide a script to install a conda environment to run our code.
+Make sure you have a CUDA compatible GPU and install the building tools:
+
+```bash
+apt install -y build-essential cmake
+```
+
+Run the following script **from the main repository directory** to build a conda environment named `l1ra` with CUDA 12.2:
+
+```bash
+bash ./build_env.sh
+```
+
+To show all the available options, run:
+
+```bash
+bash ./build_env.sh -h
+```
