@@ -11,7 +11,6 @@ from peft.tuners.tuners_utils import BaseTunerLayer
 from peft.utils import (
     TRANSFORMERS_MODELS_TO_ADALORA_TARGET_MODULES_MAPPING,
     _freeze_adapter,
-    _get_submodules,
     get_auto_gptq_quant_linear,
     get_quantization_config,
 )
@@ -260,7 +259,7 @@ class L1RAModel(LoraModel):
 
                 if "lora_c" in n and self.trainable_adapter_name in n:
 
-                    if A_matrix == None:
+                    if A_matrix is None:
                         raise RuntimeError("Matrix A not found before vector c.")
 
                     scale_factor = p.max()
@@ -284,7 +283,7 @@ class L1RAModel(LoraModel):
         t = self.peft_config[self.trainable_adapter_name].prune_threshold
         block_names = []
         for n, m in self.model.named_modules():
-            if "lora" in n and not "lora_dropout" in n:
+            if "lora" in n and "lora_dropout" not in n:
                 name = ".".join(n.split(".")[:-1])
                 if name not in block_names:
                     block_names.append(name)
@@ -294,7 +293,7 @@ class L1RAModel(LoraModel):
         spare_ranks = 0
         pruned = 0
         for i, n in enumerate(block_names):
-            if type(self.active_adapter) == list:
+            if isinstance(self.active_adapter, list):
                 active_adapter = self.active_adapter[0]
             else:
                 active_adapter = self.active_adapter
@@ -406,7 +405,7 @@ class L1RAModel(LoraModel):
         return torch.cat([c, element])
 
     def expand_A(self, A):
-        if type(self.active_adapter) == list:
+        if isinstance(self.active_adapter, list):
             active_adapter = self.active_adapter[0]
         else:
             active_adapter = self.active_adapter

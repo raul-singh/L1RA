@@ -39,7 +39,6 @@ class L1RAConfig(LoraConfig):
     """
 
     l1ra_lambda: float = field(default=1e-3, metadata={"help": "The sparse l1 regularization coefficient."})
-    eta_c: float = field(default=2e-2, metadata={"help": "The decoupled learning rate for the gate vectors"})
     rank_update_ratio: int = field(default=0.1, metadata={"help": "Ratio of training steps between each rank update."})
     prune_threshold: float = field(default=1e-10, metadata={"help": "Threshold under which ranks are pruned."})
     reassign: bool = field(default=True, metadata={"help": "Whether to reassign pruned ranks."})
