@@ -50,7 +50,7 @@ def load_config(path: str):
     return config
 
 
-def load_guanaco(config, tokenizer, validation_split=0.0):
+def load_guanaco(config, tokenizer, validation_split=0.1):
     seed = config.get("seed", 42)
     dataset_id = config["dataset_id"]
 
@@ -63,9 +63,9 @@ def load_guanaco(config, tokenizer, validation_split=0.0):
         train_ds = train_val["train"]
         val_ds = train_val["test"]
 
-    dataset = DatasetDict(
-        {"train": train_ds, "validation": val_ds, "test": test_ds}
-    )
+        dataset = DatasetDict(
+            {"train": train_ds, "validation": val_ds, "test": test_ds}
+        )
 
     def preprocess(example):
         s = example["text"].split("### ")
@@ -86,7 +86,7 @@ def load_guanaco(config, tokenizer, validation_split=0.0):
 
 
 def load_and_preprocess_dataset(config, tokenizer):
-    if tokenizer.chat is None:
+    if tokenizer.chat_template is None:
         tokenizer.chat_template = chat_template
 
     dataset_id = config["dataset_id"]
@@ -96,6 +96,8 @@ def load_and_preprocess_dataset(config, tokenizer):
 
     else:
         raise NotImplementedError(f"There is no implemented pipeline for {dataset_id}.")
+
+    logger.info("%s dataset loaded and preprocessed.", dataset_id)
 
 
 def tokenize_dataset(dataset, tokenizer):
@@ -123,7 +125,7 @@ def create_model(config):
         model_id,
         device_map="auto",
         quantization_config=bnb_config,
-        trus_remote_code=True,
+        trust_remote_code=True,
     )
     model.config.use_cache = False
     return model
@@ -131,6 +133,7 @@ def create_model(config):
 
 def create_adapter_config(config, adapter_type):
     adapter_kwargs = config["adapter_config"]
+    logger.info("Loading adapter config: %s", adapter_kwargs)
 
     if adapter_type == "l1ra":
         config_cls = L1RAConfig
@@ -161,7 +164,7 @@ def rank_evolution(trainer, model_id):
     n_layers = AutoConfig.from_pretrained(model_id).num_hidden_layers
     model_shape = (n_layers, len(rank_evolution[0])//n_layers)
     training_steps = trainer.num_training_steps * trainer.args.gradient_accumulation_steps
-    update_steps = training_steps * model.peft_config["default"].rank_update_ratio
+    update_steps = int(training_steps * model.peft_config["default"].rank_update_ratio)
 
     ranks = []
     for rank in rank_evolution:
@@ -202,7 +205,10 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
     training_args = TrainingArguments(**config["training_args"])
     trainer_cls = ADAPTER_CONFIG_TO_TRAINER_MAPPING[type(adapter_config)]
 
+    logger.info("Training %s with args:\n%s", config["model_id"], training_args)
+
     start = time.time()
+    print(dataset["train"][5])
 
     trainer = trainer_cls(
         model=model,
@@ -225,9 +231,12 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
     peak_mem_usage = torch.cuda.max_memory_allocated()
     time_taken = end - start
 
-    tokenized_dataset = tokenize_dataset(dataset)
+    logger.info("Model succesfully trained.")
+
+    tokenized_dataset = tokenize_dataset(dataset, tokenizer)
     test_loss = trainer.evaluate(eval_dataset=tokenized_dataset["test"])["eval_loss"]
     ppl = float(np.exp(test_loss))
+    logger.info("Text perplexity: %f", ppl)
 
     report = {
         "history": history,
@@ -248,15 +257,17 @@ def save_report(adapter_type, report):
     directory = os.path.join("experiments", f"{adapter_type}-{timestamp}")
     os.makedirs(directory)
 
-    report["history"].to_csv(os.path.join(directory, "history.csv"))
+    report["history"].to_csv(os.path.join(directory, "history.csv"), index=False)
     report.pop("history")
 
     if "rank_evolution" in report:
-        report["rank_evolution"].to_csv(os.path.join(directory, "rank_evolution.csv"))
+        report["rank_evolution"].to_csv(os.path.join(directory, "rank_evolution.csv"), index=False)
         report.pop("rank_evolution")
 
     with open(os.path.join(directory, "report.yml"), "w") as file:
         yaml.dump(report, file)
+
+    logger.info("Training report saved in %s", directory)
 
 
 @click.command()
@@ -274,8 +285,9 @@ def main(config_path, cv):
         padding_side="right",
     )
     tokenizer.pad_token = tokenizer.eos_token
+    logger.info("%s tokenizer loaded.", model_id)
 
-    dataset = load_dataset(config)
+    dataset = load_and_preprocess_dataset(config, tokenizer)
 
     for adapter_type in config["to_train"]:
         adapter_config = create_adapter_config(config, adapter_type)

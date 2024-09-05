@@ -2,6 +2,7 @@ import importlib.metadata
 import logging
 from enum import Enum
 from typing import Any, Optional, Tuple
+from aenum import extend_enum
 
 from packaging import version
 from peft.mapping import PEFT_TYPE_TO_TUNER_MAPPING
@@ -9,6 +10,7 @@ from torch import nn
 from transformers import PreTrainedModel, Trainer, TrainingArguments
 from transformers.utils import is_bitsandbytes_available
 from trl import SFTTrainer
+from transformers.training_args import OptimizerNames
 
 from l1ra.tuner.model import L1RAModel
 
@@ -26,6 +28,9 @@ class AdamEOptimizers(Enum):
     ADAME_BNB_8BIT = "adame_bnb_8bit"
     PAGED_ADAME = "paged_adame_32bit"
     PAGED_ADAME_8BIT = "paged_adame_8bit"
+
+for opt in AdamEOptimizers:
+    extend_enum(OptimizerNames, opt.name, opt.value)
 
 
 class L1RASFTTrainer(SFTTrainer):
@@ -184,7 +189,7 @@ class L1RASFTTrainer(SFTTrainer):
 
         """
 
-        if args.optim not in [o.value for o in AdamEOptimizers]:
+        if args.optim not in [o.value for o in OptimizerNames]:
             logger.warning(
                 "You are using the L1RA trainer wihtout using the AdamE optimizer. "
                 "If you are training a L1RA model, you should use the AdamE optimizer or "
@@ -205,17 +210,17 @@ class L1RASFTTrainer(SFTTrainer):
             "betas": (args.adam_beta1, args.adam_beta2),
             "eps": args.adam_epsilon,
         }
-        if args.optim in [AdamEOptimizers.ADAME, AdamEOptimizers.ADAME_BNB]:
+        if args.optim in [OptimizerNames.ADAME, OptimizerNames.ADAME_BNB]:
             from bitsandbytes import AdamE
 
             optimizer_cls = AdamE
             optimizer_kwargs.update(adam_kwargs)
 
         elif args.optim in [
-            AdamEOptimizers.ADAME_BNB_8BIT,
-            AdamEOptimizers.ADAME_8BIT,
-            AdamEOptimizers.PAGED_ADAME,
-            AdamEOptimizers.PAGED_ADAME_8BIT,
+            OptimizerNames.ADAME_BNB_8BIT,
+            OptimizerNames.ADAME_8BIT,
+            OptimizerNames.PAGED_ADAME,
+            OptimizerNames.PAGED_ADAME_8BIT,
         ]:
             try:
                 from bitsandbytes.optim import AdamE
@@ -393,17 +398,17 @@ class L1RATrainer(Trainer):
             "betas": (args.adam_beta1, args.adam_beta2),
             "eps": args.adam_epsilon,
         }
-        if args.optim in [AdamEOptimizers.ADAME, AdamEOptimizers.ADAME_BNB]:
+        if args.optim in [OptimizerNames.ADAME, OptimizerNames.ADAME_BNB]:
             from bitsandbytes import AdamE
 
             optimizer_cls = AdamE
             optimizer_kwargs.update(adam_kwargs)
 
         elif args.optim in [
-            AdamEOptimizers.ADAME_BNB_8BIT,
-            AdamEOptimizers.ADAME_8BIT,
-            AdamEOptimizers.PAGED_ADAME,
-            AdamEOptimizers.PAGED_ADAME_8BIT,
+            OptimizerNames.ADAME_BNB_8BIT,
+            OptimizerNames.ADAME_8BIT,
+            OptimizerNames.PAGED_ADAME,
+            OptimizerNames.PAGED_ADAME_8BIT,
         ]:
             try:
                 from bitsandbytes.optim import AdamE
