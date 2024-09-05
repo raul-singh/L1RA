@@ -95,13 +95,11 @@ class L1RASFTTrainer(SFTTrainer):
             {
                 "params": c_vectors,
                 "weight_decay": 0.0,
-                "lr": list(self.model.peft_config.values())[0].eta_c,
                 "lasso": lasso_coef,
             },
             {
                 "params": AB_parameters,
                 "weight_decay": self.args.weight_decay,
-                "lr": self.args.learning_rate,
                 "lasso": 0.0,
             },
             {
