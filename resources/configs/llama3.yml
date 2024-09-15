@@ -1,0 +1,34 @@
+model_id: meta-llama/Meta-Llama-3-8B
+seed: 42
+dataset_id: timdettmers/openassistant-guanaco
+max_seq_length: 1024
+quantization_bit: 4
+
+to_train: [l1ra]
+
+adapter_config:
+  r: 16
+  lora_alpha: 16
+  lora_dropout: 0.1
+  target_modules: all-linear
+  bias: none
+  task_type: CAUSAL_LM
+
+training_args:
+  output_dir: "experiment"
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 16
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  learning_rate: 0.0001
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  weight_decay: 0.1
+  num_train_epochs: 1
+  bf16: true
+  max_grad_norm: 0.3
+  optim: paged_adame_32bit
+  logging_steps: 0.1
+  eval_strategy: steps
+  eval_steps: 0.1
+  save_strategy: "no"

@@ -6,11 +6,11 @@ from datetime import datetime
 import click
 import numpy as np
 import pandas as pd
-import peft
 import torch
 import yaml
 from datasets import DatasetDict, load_dataset
 from peft import AdaLoraConfig, LoraConfig
+from sklearn.model_selection import KFold
 from tqdm.auto import tqdm
 from transformers import (
     AutoConfig,
@@ -22,12 +22,12 @@ from transformers import (
 )
 from trl import SFTTrainer
 
-from l1ra import L1RAConfig, L1RAModel, L1RASFTTrainer, L1RATrainer
+from l1ra import L1RAConfig, L1RASFTTrainer
 
 ADAPTER_CONFIG_TO_TRAINER_MAPPING = {
     L1RAConfig: L1RASFTTrainer,
     LoraConfig: SFTTrainer,
-    AdaLoraConfig: SFTTrainer, #TODO
+    AdaLoraConfig: SFTTrainer,  # TODO
 }
 
 
@@ -92,17 +92,24 @@ def load_and_preprocess_dataset(config, tokenizer):
     dataset_id = config["dataset_id"]
 
     if dataset_id == "timdettmers/openassistant-guanaco":
-        return load_guanaco(config, tokenizer)
+        dataset = load_guanaco(config, tokenizer)
+        logger.info("%s dataset loaded and preprocessed.", dataset_id)
+        return dataset
 
     else:
-        raise NotImplementedError(f"There is no implemented pipeline for {dataset_id}.")
-
-    logger.info("%s dataset loaded and preprocessed.", dataset_id)
+        raise NotImplementedError(
+            f"There is no implemented pipeline for {dataset_id}."
+        )
 
 
 def tokenize_dataset(dataset, tokenizer):
     def tokenize_function(examples):
-        input_encodings = tokenizer(examples["text"], return_tensors="pt", padding=True, truncation=True)
+        input_encodings = tokenizer(
+            examples["text"],
+            return_tensors="pt",
+            padding=True,
+            truncation=True
+        )
         sample = {"input_ids": input_encodings.input_ids.cuda()}
         return sample
 
@@ -120,6 +127,8 @@ def create_model(config):
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16,
         )
+    else:
+        bnb_config = None
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
@@ -141,7 +150,7 @@ def create_adapter_config(config, adapter_type):
     elif adapter_type == "lora":
         config_cls = LoraConfig
     elif adapter_type == "adalora":
-        config_cls ==AdaLoraConfig
+        config_cls == AdaLoraConfig
         adapter_kwargs.update(config.get("adalora_specific_args", {}))
 
     return config_cls(**adapter_kwargs)
@@ -150,7 +159,7 @@ def create_adapter_config(config, adapter_type):
 def compute_n_adapter_params(model):
     params = 0
 
-    for n,p in model.named_parameters():
+    for n, p in model.named_parameters():
         if "lora" in n:
             params += p.numel()
 
@@ -181,7 +190,6 @@ def rank_evolution(trainer, model_id):
             layer.append(l)
             layer = tuple(layer)
             tuples.append(layer)
-
 
     df = pd.DataFrame(
         tuples,
@@ -257,11 +265,16 @@ def save_report(adapter_type, report):
     directory = os.path.join("experiments", f"{adapter_type}-{timestamp}")
     os.makedirs(directory)
 
-    report["history"].to_csv(os.path.join(directory, "history.csv"), index=False)
+    report["history"].to_csv(
+        os.path.join(directory, "history.csv"), index=False
+    )
     report.pop("history")
 
     if "rank_evolution" in report:
-        report["rank_evolution"].to_csv(os.path.join(directory, "rank_evolution.csv"), index=False)
+        report["rank_evolution"].to_csv(
+            os.path.join(directory, "rank_evolution.csv"),
+            index=False
+        )
         report.pop("rank_evolution")
 
     with open(os.path.join(directory, "report.yml"), "w") as file:
@@ -270,12 +283,7 @@ def save_report(adapter_type, report):
     logger.info("Training report saved in %s", directory)
 
 
-@click.command()
-@click.option('--config-path', help='Path of training config file.')
-@click.option('--cv', is_flag=True, help='Perform cross-validation.')
-def main(config_path, cv):
-    config = load_config(config_path)
-
+def load_tokenizer(config):
     model_id = config["model_id"]
     max_seq_len = config["max_seq_length"]
 
@@ -287,13 +295,94 @@ def main(config_path, cv):
     tokenizer.pad_token = tokenizer.eos_token
     logger.info("%s tokenizer loaded.", model_id)
 
-    dataset = load_and_preprocess_dataset(config, tokenizer)
+    return tokenizer
 
-    for adapter_type in config["to_train"]:
-        adapter_config = create_adapter_config(config, adapter_type)
-        model = create_model(config)
-        report = train_and_evaluate(model, tokenizer, adapter_config, dataset, config)
-        save_report(adapter_type, report)
+
+def cross_validation(cv_config, run_config):
+    K = cv_config["k"]
+    kf = KFold(n_splits=K)
+
+    tokenizer = load_tokenizer(run_config)
+    dataset = load_and_preprocess_dataset(run_config, tokenizer)
+    to_validate = cv_config["validate"]
+    cv_report = []
+
+    for v in to_validate["values"]:
+
+        fold_reports = []
+
+        for fold, (train_idx, val_idx) in tqdm(
+            enumerate(kf.split(dataset["train"]), 1), desc="Fold"
+        ):
+            logger.info("Fold %d.", fold)
+            base_model = create_model(run_config)
+            run_config["adapter_config"][to_validate["variable"]] = v
+            adapter_config = create_adapter_config(run_config, "l1ra")
+
+            train_dataset = dataset["train"].select(train_idx)
+            val_dataset = dataset["train"].select(val_idx)
+
+            fold_dataset = DatasetDict(
+                {"train": train_dataset, "test": val_dataset}
+            )
+
+            report = train_and_evaluate(
+                base_model,
+                tokenizer,
+                adapter_config,
+                fold_dataset,
+                run_config
+            )
+            fold_reports.append(report)
+
+        ppl_values = np.array([r["ppl"] for r in fold_reports])
+        param_values = np.array([r["adapter_params"] for r in fold_reports])
+
+        ppl_mean = ppl_values.mean()
+        ppl_std = ppl_values.std()
+        param_mean = param_values.mean()
+        param_std = param_values.std()
+
+        cv_report.append(v, ppl_mean, ppl_std, param_mean, param_std)
+
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+    directory = os.path.join("experiments", f"cv-{timestamp}")
+    os.makedirs(directory)
+
+    df = pd.DataFrame(
+        cv_report,
+        columns=["lambda", "ppl_mean", "ppl_std", "param_mean", "param_std"]
+    )
+    df.to_csv(os.path.join(directory, "cross-validation.csv"), index=False)
+
+    logger.info("Cross-validation report saved in %s", directory)
+
+
+@click.command()
+@click.option('--config-path', help='Path of training/cv config file.')
+def main(config_path):
+    config = load_config(config_path)
+
+    if "cv_k" in config:
+        configs = [load_config(c) for c in config["run_cv_on"]]
+        for run in configs:
+            cross_validation(config, run)
+
+    else:
+        tokenizer = load_tokenizer(config)
+        dataset = load_and_preprocess_dataset(config, tokenizer)
+
+        for adapter_type in config["to_train"]:
+            adapter_config = create_adapter_config(config, adapter_type)
+            model = create_model(config)
+            report = train_and_evaluate(
+                model,
+                tokenizer,
+                adapter_config,
+                dataset,
+                config
+            )
+            save_report(adapter_type, report)
 
 
 if __name__ == '__main__':
