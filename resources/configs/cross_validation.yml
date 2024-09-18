@@ -1,7 +1,7 @@
 cv_k: 5
 run_cv_on:
-  - resources/config/mistral.yml
-  - resources/config/llama3.yml
+  - resources/configs/mistral.yml
+  - resources/configs/llama3.yml
 validate:
-  - variable: l1ra_lambda
-  - values: [0.5, 0.2, 0.1, 0.05, 0.02, 0.01]
+  variable: l1ra_lambda
+  values: [0.5, 0.2, 0.1, 0.05, 0.02, 0.01]

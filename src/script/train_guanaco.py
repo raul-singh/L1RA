@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 import yaml
 from datasets import DatasetDict, load_dataset
-from peft import AdaLoraConfig, LoraConfig
+from peft import AdaLoraConfig, LoraConfig, prepare_model_for_kbit_training
 from sklearn.model_selection import KFold
 from tqdm.auto import tqdm
 from transformers import (
@@ -20,7 +20,7 @@ from transformers import (
     DataCollatorForLanguageModeling,
     TrainingArguments,
 )
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 
 from l1ra import L1RAConfig, L1RASFTTrainer
 
@@ -93,13 +93,23 @@ def load_and_preprocess_dataset(config, tokenizer):
 
     if dataset_id == "timdettmers/openassistant-guanaco":
         dataset = load_guanaco(config, tokenizer)
-        logger.info("%s dataset loaded and preprocessed.", dataset_id)
-        return dataset
 
     else:
         raise NotImplementedError(
             f"There is no implemented pipeline for {dataset_id}."
         )
+
+    logger.info("%s dataset loaded and preprocessed.", dataset_id)
+
+    if "subset" in config:
+        subset = config["subset"]
+        for d in dataset.keys():
+            dataset[d] = dataset[d].shuffle().select(
+                list(range(int(dataset[d].num_rows * subset)))
+            )
+        logger.info("Created %f subset of dataset.", subset)
+
+    return dataset
 
 
 def tokenize_dataset(dataset, tokenizer):
@@ -127,6 +137,7 @@ def create_model(config):
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16,
         )
+        logger.info("Quantizing model to %d-bit", q_bit)
     else:
         bnb_config = None
 
@@ -137,6 +148,9 @@ def create_model(config):
         trust_remote_code=True,
     )
     model.config.use_cache = False
+    model.gradient_checkpointing_enable()
+    model = prepare_model_for_kbit_training(model)
+
     return model
 
 
@@ -210,24 +224,25 @@ def rank_evolution(trainer, model_id):
 
 
 def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
-    training_args = TrainingArguments(**config["training_args"])
+    args = config["training_args"]
+    #args.update({"dataset_text_field": "text", "max_seq_length": config["max_seq_length"]})
+    training_args = TrainingArguments(**args)
     trainer_cls = ADAPTER_CONFIG_TO_TRAINER_MAPPING[type(adapter_config)]
 
-    logger.info("Training %s with args:\n%s", config["model_id"], training_args)
+    logger.debug("Training %s with args:\n%s", config["model_id"], training_args)
 
     start = time.time()
-    print(dataset["train"][5])
 
     trainer = trainer_cls(
         model=model,
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset.get("validation", None),
-        dataset_text_field="text",
         peft_config=adapter_config,
-        max_seq_length=config["max_seq_length"],
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
-        tokenizer=tokenizer
+        tokenizer=tokenizer,
+        dataset_text_field="text",
+        max_seq_length=config["max_seq_length"]
     )
 
     trainer.train()
@@ -244,7 +259,8 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
     tokenized_dataset = tokenize_dataset(dataset, tokenizer)
     test_loss = trainer.evaluate(eval_dataset=tokenized_dataset["test"])["eval_loss"]
     ppl = float(np.exp(test_loss))
-    logger.info("Text perplexity: %f", ppl)
+    logger.info("Test loss: %f", test_loss)
+    logger.info("Test perplexity: %f", ppl)
 
     report = {
         "history": history,
@@ -299,7 +315,7 @@ def load_tokenizer(config):
 
 
 def cross_validation(cv_config, run_config):
-    K = cv_config["k"]
+    K = cv_config["cv_k"]
     kf = KFold(n_splits=K)
 
     tokenizer = load_tokenizer(run_config)
@@ -311,8 +327,10 @@ def cross_validation(cv_config, run_config):
 
         fold_reports = []
 
-        for fold, (train_idx, val_idx) in tqdm(
-            enumerate(kf.split(dataset["train"]), 1), desc="Fold"
+        logger.info("Performing %d-fold cross-validation on %s=%f", K, to_validate["variable"], v)
+
+        for fold, (train_idx, val_idx) in (
+            enumerate(kf.split(dataset["train"]), 1)
         ):
             logger.info("Fold %d.", fold)
             base_model = create_model(run_config)
@@ -334,6 +352,8 @@ def cross_validation(cv_config, run_config):
                 run_config
             )
             fold_reports.append(report)
+            del base_model
+            torch.cuda.empty_cache()
 
         ppl_values = np.array([r["ppl"] for r in fold_reports])
         param_values = np.array([r["adapter_params"] for r in fold_reports])
@@ -343,7 +363,10 @@ def cross_validation(cv_config, run_config):
         param_mean = param_values.mean()
         param_std = param_values.std()
 
-        cv_report.append(v, ppl_mean, ppl_std, param_mean, param_std)
+        logger.info("%d folds completed.", K)
+        logger.info("Perplexity: mean=%f, std=%f", ppl_mean, ppl_std)
+        logger.info("Params: mean=%f, std=%f", param_mean, param_std)
+        cv_report.append((v, ppl_mean, ppl_std, param_mean, param_std))
 
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
     directory = os.path.join("experiments", f"cv-{timestamp}")
@@ -362,6 +385,7 @@ def cross_validation(cv_config, run_config):
 @click.option('--config-path', help='Path of training/cv config file.')
 def main(config_path):
     config = load_config(config_path)
+    os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
     if "cv_k" in config:
         configs = [load_config(c) for c in config["run_cv_on"]]
