@@ -271,11 +271,10 @@ class L1RAModel(LoraModel):
     def update_ranks(self, global_step, num_training_steps):
 
         #self.normalize_c()
+        interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
 
         if (
-            global_step
-            % int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
-            != 0 or
+            global_step % interval != 0 or
             global_step == 0
         ):
             return False

@@ -173,6 +173,7 @@ class L1RASFTTrainer(SFTTrainer):
         updated = model.update_ranks(self.real_step, num_training_steps)
         if updated:
             self.restart_optimizer()
+
         self.real_step += 1
         return super().training_step(model, inputs)
 

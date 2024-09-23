@@ -150,13 +150,13 @@ def create_model(config):
     model.config.use_cache = False
     model.gradient_checkpointing_enable()
     model = prepare_model_for_kbit_training(model)
+    logger.info("%s loaded.", model_id)
 
     return model
 
 
 def create_adapter_config(config, adapter_type):
     adapter_kwargs = config["adapter_config"]
-    logger.info("Loading adapter config: %s", adapter_kwargs)
 
     if adapter_type == "l1ra":
         config_cls = L1RAConfig
@@ -167,6 +167,7 @@ def create_adapter_config(config, adapter_type):
         config_cls == AdaLoraConfig
         adapter_kwargs.update(config.get("adalora_specific_args", {}))
 
+    logger.info("Loading adapter config: %s", adapter_kwargs)
     return config_cls(**adapter_kwargs)
 
 
@@ -323,6 +324,10 @@ def cross_validation(cv_config, run_config):
     to_validate = cv_config["validate"]
     cv_report = []
 
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+    directory = os.path.join("experiments", f"cv-{run_config["model_id"]}-{timestamp}")
+    os.makedirs(directory)
+
     for v in to_validate["values"]:
 
         fold_reports = []
@@ -368,15 +373,11 @@ def cross_validation(cv_config, run_config):
         logger.info("Params: mean=%f, std=%f", param_mean, param_std)
         cv_report.append((v, ppl_mean, ppl_std, param_mean, param_std))
 
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-    directory = os.path.join("experiments", f"cv-{timestamp}")
-    os.makedirs(directory)
-
-    df = pd.DataFrame(
-        cv_report,
-        columns=["lambda", "ppl_mean", "ppl_std", "param_mean", "param_std"]
-    )
-    df.to_csv(os.path.join(directory, "cross-validation.csv"), index=False)
+        df = pd.DataFrame(
+            cv_report,
+            columns=["lambda", "ppl_mean", "ppl_std", "param_mean", "param_std"]
+        )
+        df.to_csv(os.path.join(directory, "cross-validation.csv"), index=False)
 
     logger.info("Cross-validation report saved in %s", directory)
 
