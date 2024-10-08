@@ -73,8 +73,9 @@ class L1RASFTTrainer(SFTTrainer):
     """
 
     def __init__(self, *args, **kwargs):
-        self.real_step = 0
         super().__init__(*args, **kwargs)
+        self.real_step = 0
+        self.model.set_threshold(self.args.learning_rate)
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         self.num_training_steps = num_training_steps
@@ -94,23 +95,24 @@ class L1RASFTTrainer(SFTTrainer):
                 other_parameters.append(param)
 
         # TODO Hardcoded default name, must change
-        lasso_coef = self.model.peft_config["default"].l1ra_lambda
+        lasso_coef = self.model.peft_config[self.model.trainable_adapter_name].l1ra_lambda
 
         optimizer_grouped_parameters = [
             {
                 "params": c_vectors,
                 "weight_decay": 0.0,
+                "lr": list(self.model.peft_config.values())[0].eta_c,
                 "lasso": lasso_coef,
             },
             {
                 "params": AB_parameters,
                 "weight_decay": self.args.weight_decay,
+                "lr": self.args.learning_rate,
                 "lasso": 0.0,
             },
             {
                 "params": other_parameters,
                 "weight_decay": 0.0,
-                "lasso": 0.0
             },
         ]
 
@@ -299,7 +301,6 @@ class L1RATrainer(Trainer):
             {
                 "params": other_parameters,
                 "weight_decay": 0.0,
-                "lasso": 0.0
             },
         ]
 

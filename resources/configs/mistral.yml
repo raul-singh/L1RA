@@ -1,4 +1,4 @@
-model_id: mistralai/Mistral-7B-v0.1
+model_id: mistralai/Mistral-7B-v0.3
 seed: 42
 dataset_id: timdettmers/openassistant-guanaco
 max_seq_length: 1024
@@ -14,6 +14,10 @@ adapter_config:
   bias: none
   task_type: CAUSAL_LM
 
+l1ra_specific_args:
+  l1ra_lambda: 0.005
+  eta_c: 0.02
+
 training_args:
   output_dir: "experiment"
   per_device_train_batch_size: 2
@@ -26,7 +30,7 @@ training_args:
   weight_decay: 0.1
   num_train_epochs: 1
   bf16: true
-  max_grad_norm: 0.3
+  max_grad_norm: 1.0
   optim: paged_adame_32bit
   logging_steps: 0.1
   eval_strategy: "no"

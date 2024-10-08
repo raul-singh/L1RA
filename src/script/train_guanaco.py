@@ -257,6 +257,22 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
 
     logger.info("Model succesfully trained.")
 
+    logger.info("%s", [p for n,p in model.named_parameters() if "lora_c" in n])
+
+    regu_loss = 0
+    num_param = 0
+    for n, p in model.named_parameters():
+        if "lora_c" in n:
+            num_param += 1
+            regu_loss += torch.norm(torch.nn.functional.softmax(p, dim=0), p=1)
+    if num_param > 0:
+        regu_loss = regu_loss / num_param
+    else:
+        regu_loss = 0
+
+    trainer.model.eval()
+    logger.info("l1ra lambda: %f", trainer.model.peft_config["default"].l1ra_lambda)
+
     tokenized_dataset = tokenize_dataset(dataset, tokenizer)
     test_loss = trainer.evaluate(eval_dataset=tokenized_dataset["test"])["eval_loss"]
     ppl = float(np.exp(test_loss))

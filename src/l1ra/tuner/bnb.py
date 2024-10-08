@@ -1,6 +1,7 @@
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 from peft.import_utils import is_bnb_4bit_available, is_bnb_available
 
@@ -52,8 +53,7 @@ if is_bnb_available():
                 scaling = self.scaling[active_adapter]
                 r = self.r[active_adapter]
 
-                lora_c.data = lora_c.data.clamp(0,1)
-                output = dropout(x) @ lora_A * lora_c @ lora_B
+                output = dropout(x) @ lora_A * torch.nn.functional.softmax(lora_c) @ lora_B
                 if requires_conversion:
                     output = output.to(expected_dtype)
                 output = output * scaling
@@ -120,7 +120,7 @@ if is_bnb_4bit_available():
                     if x.dtype != compute_dtype:
                         x = x.to(compute_dtype)
 
-                lora_c.data = lora_c.data.clamp(0,1)
+                lora_c.data.clamp_(0.0, 1.0)
                 output = dropout(x) @ lora_A * lora_c @ lora_B
                 if requires_conversion:
                     output = output.to(expected_dtype)

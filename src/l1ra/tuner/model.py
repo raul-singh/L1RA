@@ -4,6 +4,7 @@ import re
 
 import torch
 from transformers.pytorch_utils import Conv1D
+import torch.nn.functional as F
 
 from peft.import_utils import is_bnb_4bit_available, is_bnb_available
 from peft.tuners.lora import LoraConfig, LoraModel
@@ -44,6 +45,7 @@ class L1RAModel(LoraModel):
 
         self.rank_evolution = []
         self.num_training_steps = 0
+        self.stored_l1ra_lambda = None
 
     def _check_new_adapter_config(self, config: LoraConfig) -> None:
         """
@@ -228,50 +230,62 @@ class L1RAModel(LoraModel):
                 self.trainable_adapter_name
             ].l1ra_lambda
 
+            r = self.peft_config[
+                self.trainable_adapter_name
+            ].r
+
+
             if sparse_reg_weight < 0:
                 raise ValueError(
                     "sparse_reg_weight should be greater or equal than 0. "
                 )
             """
-            # L1 regularization computation
-            regu_loss = 0
-            num_param = 0
-            for n, p in self.model.named_parameters():
-                if "lora_c" in n and self.trainable_adapter_name in n:
-                    num_param += 1
-                    regu_loss += torch.norm(p, p=1)
-            if num_param > 0:
-                regu_loss = regu_loss / num_param
-            else:
+            elif sparse_reg_weight > 0:
+                # L1 regularization computation
                 regu_loss = 0
+                num_param = 0
+                for n, p in self.model.named_parameters():
+                    if "lora_c" in n and self.trainable_adapter_name in n:
+                        num_param += p.numel()
+                        regu_loss += torch.norm(F.sigmoid(p*(r**2)), p=1)
+                if num_param > 0:
+                    regu_loss = regu_loss / num_param
+                else:
+                    regu_loss = 0
 
-            outputs.loss += sparse_reg_weight * regu_loss
+                outputs.loss += sparse_reg_weight * regu_loss
             """
+
         return outputs
 
+    def set_threshold(self, lr):
+        self.threshold = (
+            lr
+            * self.peft_config[self.trainable_adapter_name].l1ra_lambda
+            + self.peft_config[self.trainable_adapter_name].prune_threshold
+        )
 
     def normalize_c(self):
+        gate_scale = 1 / self.peft_config[self.trainable_adapter_name].r
         with torch.no_grad():
-            A_matrix = None
             for n, p in self.model.named_parameters():
                 if "lora_A" in n and self.trainable_adapter_name in n:
                     A_matrix = p
 
                 if "lora_c" in n and self.trainable_adapter_name in n:
 
-                    if A_matrix is None:
-                        raise RuntimeError("Matrix A not found before vector c.")
-
                     scale_factor = p.max()
-                    p.div_(scale_factor)
+                    p.mul_(gate_scale/scale_factor)
                     A_matrix.mul_(scale_factor)
 
                     A_matrix = None
 
     def update_ranks(self, global_step, num_training_steps):
 
-        #self.normalize_c()
         interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
+        r = self.peft_config[
+                self.trainable_adapter_name
+            ].r
 
         if (
             global_step % interval != 0 or
@@ -279,7 +293,8 @@ class L1RAModel(LoraModel):
         ):
             return False
 
-        t = self.peft_config[self.trainable_adapter_name].prune_threshold
+        t = self.threshold
+
         block_names = []
         for n, m in self.model.named_modules():
             if "lora" in n and "lora_dropout" not in n:
@@ -430,3 +445,17 @@ class L1RAModel(LoraModel):
             else:
                 prev = getattr(prev, a)
         return prev
+
+    def eval(self):
+        self.stored_l1ra_lambda = self.peft_config[self.trainable_adapter_name].l1ra_lambda
+        self.peft_config[self.trainable_adapter_name].l1ra_lambda = 0
+        return super().eval()
+
+    def train(self, mode: bool = True):
+        if mode is False:
+            self.stored_l1ra_lambda = self.peft_config[self.trainable_adapter_name].l1ra_lambda
+            self.peft_config[self.trainable_adapter_name].l1ra_lambda = 0
+            return super().train(mode)
+        if self.stored_l1ra_lambda is not None:
+            self.peft_config[self.trainable_adapter_name].l1ra_lambda = self.stored_l1ra_lambda
+        return super().train(mode)
