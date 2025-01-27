@@ -31,9 +31,22 @@ ADAPTER_CONFIG_TO_TRAINER_MAPPING = {
     AdaLoraConfig: SFTTrainer,  # TODO
 }
 
+chat_template = '''{% if (messages | first).role != 'system' %}The following is a chat between a human user (referred to as "User") and an AI assistant (referred to as "Assistant") knowledgeable in all sort of subjects. 
+The assistant is very respectful, honest and it always answer as helpfully as possible, while being safe. 
+The answers of the assistant never include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. 
+When questions do not make any sense or are not factually correct, the assistant avoid answering incorrect information and explain why it has not understood and asks for a clarification.
 
-chat_template = "{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'] %}{% elif false == true and not '<<SYS>>' in messages[0]['content'] %}{% set loop_messages = messages %}{% set system_message = 'You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\\n\\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don\\'t know the answer to a question, please don\\'t share false information.' %}{% else %}{% set loop_messages = messages %}{% set system_message = false %}{% endif %}{% for message in loop_messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if loop.index0 == 0 and system_message != false %}{% set content = '<<SYS>>\\n' + system_message + '\\n<</SYS>>\\n\\n' + message['content'] %}{% else %}{% set content = message['content'] %}{% endif %}{% if message['role'] == 'user' %}{{ bos_token + '[INST] ' + content.strip() + ' [/INST]' }}{% elif message['role'] == 'system' %}{{ '<<SYS>>\\n' + content.strip() + '\\n<</SYS>>\\n\\n' }}{% elif message['role'] == 'assistant' %}{{ ' '  + content.strip() + ' ' + eos_token }}{% endif %}{% endfor %}"
+---
 
+{% endif %}{% for message in messages %}{% if message.role == 'system' and loop.index0 == 0 %}{{ message.content | trim }}
+
+---
+
+{% elif message.role == 'user' %}>>> User: {{ message.content | trim }}
+
+{% elif message.role == 'assistant' %}>>> Assistant: {{ message.content | trim }}
+
+{% endif %}{% endfor %}'''
 
 # Create and initialize logger
 logger = logging.getLogger(__name__)
@@ -86,6 +99,59 @@ def load_guanaco(config, tokenizer, validation_split=0.1):
     return dataset.map(preprocess)
 
 
+def load_open_orca(config, tokenizer, validation_split=0.1, test_split=0.1):
+    seed = config.get("seed", 42)
+    dataset_id = config["dataset_id"]
+
+    dataset = load_dataset(dataset_id)
+
+    if test_split > 0.0 and validation_split > 0.0:
+        train_test = dataset["train"].train_test_split(validation_split, seed=seed)
+        dataset = train_test["train"]
+        test_ds = train_test["test"]
+
+        train_val = dataset["train"].train_test_split(validation_split, seed=seed)
+        train_ds = train_val["train"]
+        val_ds = train_val["test"]
+
+        dataset = DatasetDict(
+            {"train": train_ds, "validation": val_ds, "test": test_ds}
+        )
+    elif test_split > 0.0:
+        train_test = dataset["train"].train_test_split(validation_split, seed=seed)
+        train_ds = train_test["train"]
+        test_ds = train_test["test"]
+
+        dataset = DatasetDict(
+            {"train": train_ds, "test": test_ds}
+        )
+    elif validation_split > 0.0:
+        train_val = dataset["train"].train_test_split(validation_split, seed=seed)
+        train_ds = train_val["train"]
+        val_ds = train_val["test"]
+
+        dataset = DatasetDict(
+            {"train": train_ds, "validation": val_ds}
+        )
+
+    def preprocess(example):
+        chat = []
+        if example['system_prompt']:
+            chat.append(
+                {"role": "system", "content": example['system_prompt']}
+            )
+        chat.append(
+            {"role": "user", "content": example['question']}
+        )
+        chat.append(
+            {"role": "assistant", "content": example['response']}
+        )
+        chat = tokenizer.apply_chat_template(chat, tokenize=False)
+        return {"text": chat + tokenizer.eos_tokens}
+
+    return dataset.map(preprocess)
+
+
 def load_and_preprocess_dataset(config, tokenizer):
     if tokenizer.chat_template is None:
         tokenizer.chat_template = chat_template
@@ -94,7 +160,8 @@ def load_and_preprocess_dataset(config, tokenizer):
 
     if dataset_id == "timdettmers/openassistant-guanaco":
         dataset = load_guanaco(config, tokenizer)
-
+    elif dataset_id == 'Open-Orca/OpenOrca':
+        dataset = load_open_orca(config, tokenizer)
     else:
         raise NotImplementedError(
             f"There is no implemented pipeline for {dataset_id}."
@@ -108,7 +175,7 @@ def load_and_preprocess_dataset(config, tokenizer):
             dataset[d] = dataset[d].shuffle().select(
                 list(range(int(dataset[d].num_rows * subset)))
             )
-        logger.info("Created %f subset of dataset.", subset)
+        logger.info(f"Created {subset * 100} % subset of dataset.")
 
     return dataset
 
@@ -334,7 +401,6 @@ def load_tokenizer(config):
 
 def cross_validation(cv_config, run_config):
     K = cv_config["cv_k"]
-    kf = KFold(n_splits=K)
 
     tokenizer = load_tokenizer(run_config)
     dataset = load_and_preprocess_dataset(run_config, tokenizer)
@@ -358,6 +424,8 @@ def cross_validation(cv_config, run_config):
         for k, v in cv_config_.items():
             k, param = k.split('__')
             current_run_config[k][param] = v
+
+        kf = KFold(n_splits=K, random_state=run_config.get('seed', 42))
 
         for fold, (train_idx, val_idx) in (
             enumerate(kf.split(dataset["train"]), 1)
