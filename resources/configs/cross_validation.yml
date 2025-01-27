@@ -7,7 +7,7 @@ param_grid:
     - 0.1
     - 0.05
     - 0.01
-  eta_c:  # Learning rate c vector
+  adapter_config__eta_c:  # Learning rate c vector
     - 1.e-2
     - 1.e-4
   adapter_config__rank_update_ratio:  # Ratio of the training steps after which update ranks

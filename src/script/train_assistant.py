@@ -310,8 +310,8 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
         peft_config=adapter_config,
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
         tokenizer=tokenizer,
-        dataset_text_field="text",
-        max_seq_length=config["max_seq_length"]
+        # dataset_text_field="text",
+        # max_seq_length=config["max_seq_length"]
     )
 
     trainer.train()
@@ -401,6 +401,7 @@ def load_tokenizer(config):
 
 def cross_validation(cv_config, run_config):
     K = cv_config["cv_k"]
+    kf = KFold(n_splits=K)
 
     tokenizer = load_tokenizer(run_config)
     dataset = load_and_preprocess_dataset(run_config, tokenizer)
@@ -424,8 +425,6 @@ def cross_validation(cv_config, run_config):
         for k, v in cv_config_.items():
             k, param = k.split('__')
             current_run_config[k][param] = v
-
-        kf = KFold(n_splits=K, random_state=run_config.get('seed', 42))
 
         for fold, (train_idx, val_idx) in (
             enumerate(kf.split(dataset["train"]), 1)
