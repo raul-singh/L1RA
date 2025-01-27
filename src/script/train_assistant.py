@@ -310,8 +310,8 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
         peft_config=adapter_config,
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
         tokenizer=tokenizer,
-        # dataset_text_field="text",
-        # max_seq_length=config["max_seq_length"]
+        dataset_text_field="text",
+        max_seq_length=config["max_seq_length"]
     )
 
     trainer.train()
