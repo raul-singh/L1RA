@@ -103,14 +103,14 @@ def load_open_orca(config, tokenizer, validation_split=0.1, test_split=0.1):
     seed = config.get("seed", 42)
     dataset_id = config["dataset_id"]
 
-    dataset = load_dataset(dataset_id)
+    dataset = load_dataset(dataset_id, split='train')
 
     if test_split > 0.0 and validation_split > 0.0:
-        train_test = dataset["train"].train_test_split(validation_split, seed=seed)
+        train_test = dataset.train_test_split(validation_split, seed=seed)
         dataset = train_test["train"]
         test_ds = train_test["test"]
 
-        train_val = dataset["train"].train_test_split(validation_split, seed=seed)
+        train_val = dataset.train_test_split(validation_split, seed=seed)
         train_ds = train_val["train"]
         val_ds = train_val["test"]
 
@@ -118,7 +118,7 @@ def load_open_orca(config, tokenizer, validation_split=0.1, test_split=0.1):
             {"train": train_ds, "validation": val_ds, "test": test_ds}
         )
     elif test_split > 0.0:
-        train_test = dataset["train"].train_test_split(validation_split, seed=seed)
+        train_test = dataset.train_test_split(validation_split, seed=seed)
         train_ds = train_test["train"]
         test_ds = train_test["test"]
 
@@ -126,7 +126,7 @@ def load_open_orca(config, tokenizer, validation_split=0.1, test_split=0.1):
             {"train": train_ds, "test": test_ds}
         )
     elif validation_split > 0.0:
-        train_val = dataset["train"].train_test_split(validation_split, seed=seed)
+        train_val = dataset.train_test_split(validation_split, seed=seed)
         train_ds = train_val["train"]
         val_ds = train_val["test"]
 
@@ -147,7 +147,7 @@ def load_open_orca(config, tokenizer, validation_split=0.1, test_split=0.1):
             {"role": "assistant", "content": example['response']}
         )
         chat = tokenizer.apply_chat_template(chat, tokenize=False)
-        return {"text": chat + tokenizer.eos_tokens}
+        return {"text": chat + tokenizer.eos_token}
 
     return dataset.map(preprocess)
 
