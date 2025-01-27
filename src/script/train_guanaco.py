@@ -2,7 +2,8 @@ import logging
 import os
 import time
 from datetime import datetime
-
+from itertools import product
+from copy import deepcopy
 import click
 import numpy as np
 import pandas as pd
@@ -337,26 +338,33 @@ def cross_validation(cv_config, run_config):
 
     tokenizer = load_tokenizer(run_config)
     dataset = load_and_preprocess_dataset(run_config, tokenizer)
-    to_validate = cv_config["validate"]
     cv_report = []
 
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
     directory = os.path.join("experiments", f"cv-{run_config["model_id"]}-{timestamp}")
     os.makedirs(directory)
 
-    for v in to_validate["values"]:
+    cv_configs = (
+        dict(zip(cv_config['param_grid'].keys(), values)) for values in product(*cv_config['param_grid'].values())
+    )
+
+    for cv_config_ in cv_configs:
 
         fold_reports = []
 
-        logger.info("Performing %d-fold cross-validation on %s=%f", K, to_validate["variable"], v)
+        logger.info(f"Performing {K}-fold cross-validation -- Current config: {repr(cv_config_)}")
+
+        current_run_config = deepcopy(run_config)
+        for k, v in cv_config_.items():
+            k, param = k.split('__')
+            current_run_config[k][param] = v
 
         for fold, (train_idx, val_idx) in (
             enumerate(kf.split(dataset["train"]), 1)
         ):
             logger.info("Fold %d.", fold)
-            base_model = create_model(run_config)
-            run_config["adapter_config"][to_validate["variable"]] = v
-            adapter_config = create_adapter_config(run_config, "l1ra")
+            base_model = create_model(current_run_config)
+            adapter_config = create_adapter_config(current_run_config, "l1ra")
 
             train_dataset = dataset["train"].select(train_idx)
             val_dataset = dataset["train"].select(val_idx)
@@ -370,7 +378,7 @@ def cross_validation(cv_config, run_config):
                 tokenizer,
                 adapter_config,
                 fold_dataset,
-                run_config
+                current_run_config
             )
             fold_reports.append(report)
             del base_model
@@ -384,18 +392,18 @@ def cross_validation(cv_config, run_config):
         param_mean = param_values.mean()
         param_std = param_values.std()
 
-        logger.info("%d folds completed.", K)
-        logger.info("Perplexity: mean=%f, std=%f", ppl_mean, ppl_std)
-        logger.info("Params: mean=%f, std=%f", param_mean, param_std)
-        cv_report.append((v, ppl_mean, ppl_std, param_mean, param_std))
+        logger.info(f"{K} folds completed.")
+        logger.info(f"Perplexity: mean={ppl_mean}, std={ppl_std}")
+        logger.info(f"Params: mean={param_mean}, std={param_std}")
+        cv_report.append((*cv_config_.values(), ppl_mean, ppl_std, param_mean, param_std))
 
         df = pd.DataFrame(
             cv_report,
-            columns=["lambda", "ppl_mean", "ppl_std", "param_mean", "param_std"]
+            columns=[*cv_config_.keys(), "ppl_mean", "ppl_std", "param_mean", "param_std"]
         )
         df.to_csv(os.path.join(directory, "cross-validation.csv"), index=False)
 
-    logger.info("Cross-validation report saved in %s", directory)
+    logger.info(f"Cross-validation report saved at \"{directory}\"")
 
 
 @click.command()
