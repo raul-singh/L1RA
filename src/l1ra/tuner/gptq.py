@@ -45,7 +45,7 @@ class L1RAQuantLinear(torch.nn.Module, L1RALayer):
                 if x.dtype != torch.float32:
                     x = x.float()
 
-            output = (dropout(x) @ (lora_A * lora_c).T @ lora_B.T) * scaling / r
+            output = (dropout(x) @ (lora_A * torch.nn.functional.softmax(lora_c)).T @ lora_B.T) * scaling / r
 
             if requires_conversion:
                 output = output.to(expected_dtype)

@@ -153,7 +153,7 @@ class L1RALinear(nn.Module, L1RALayer):
                 scaling = self.scaling[active_adapter]
                 r = self.r[active_adapter]
 
-                lora_c.data.clamp_(0.0,1.0)
+                lora_c.data.clamp_(0.0, 1.0)
                 result = result + (dropout(x) @ lora_A * lora_c @ lora_B) * scaling
 
             result = result.to(torch_result_dtype)
