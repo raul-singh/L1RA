@@ -164,7 +164,7 @@ def create_adapter_config(config, adapter_type):
     elif adapter_type == "lora":
         config_cls = LoraConfig
     elif adapter_type == "adalora":
-        config_cls == AdaLoraConfig
+        config_cls = AdaLoraConfig
         adapter_kwargs.update(config.get("adalora_specific_args", {}))
 
     logger.info("Loading adapter config: %s", adapter_kwargs)
