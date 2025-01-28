@@ -66,7 +66,7 @@ conda run -n ${env_name} make
 conda run -n ${env_name} pip install -e .
 
 cd ../..
-
+conda run -n ${env_name} pip install requirements.txt
 conda run -n ${env_name} conda env config vars set PYTHONPATH=${PYTHONPATH}:${PWD}/src/
 
 exit 0
