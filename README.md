@@ -100,6 +100,8 @@ Make sure you have:
   ```bash
   apt install -y build-essential cmake
   ```
+  
+### Main environment
 
 Run the following script **from the main repository directory** to build a conda environment named `l1ra` with CUDA 12.2:
 
@@ -112,3 +114,21 @@ To show all the available options, run:
 ```bash
 bash ./build_env.sh -h
 ```
+
+### Baselines environment
+
+To replicate the baselines experiments, you will need a separate environment.
+Run the following script **from the main repository directory** to build a conda environment named `l1ra_baseline` with CUDA 12.2:
+
+```bash
+bash ./build_env_baselines.sh
+```
+
+To show all the available options, run:
+
+```bash
+bash ./build_env_baselines.sh -h
+```
+
+> [!NOTE]  
+> This part is necessary only to replicate the experiments and is not required to use L1RA.
