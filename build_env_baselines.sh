@@ -4,6 +4,7 @@ set -xe
 # Default values for arguments
 env_name=l1ra_baseline
 cuda_version=122
+repo_path=${PWD}
 
 # Help function
 show_help() {
@@ -43,8 +44,12 @@ done
 # Create and activate Anaconda environment
 conda create -n ${env_name} python=3.12 -y
 mkdir -p ${CONDA_PREFIX}/envs/${env_name}/local
-#
-conda run -n ${env_name} pip install -r requirements_baseline.txt
-conda run -n ${env_name} conda env config vars set PYTHONPATH=${PYTHONPATH}:${PWD}/src/
+# Install L1RA
+cd ${repo_path}
+conda run -n ${env_name} pip install -r requirements.txt
+conda run -n ${env_name} conda env config vars set PYTHONPATH=${PYTHONPATH}:${repo_path}/src/
+# Install Memory-GELATO
+cd ${repo_path}/submodules/memory-gelato
+conda run -n ${env_name} pip install -e .
 
 exit 0

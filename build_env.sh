@@ -4,6 +4,7 @@ set -xe
 # Default values for arguments
 env_name=l1ra
 cuda_version=122
+repo_path=${PWD}
 
 # Help function
 show_help() {
@@ -51,7 +52,7 @@ mkdir -p ${CONDA_PREFIX}/envs/${env_name}/local
 git submodule init
 git submodule update
 # Build BNB from source (https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/docs/source/installation.mdx)
-cd ./submodules/bitsandbytes
+cd ${repo_path}/submodules/bitsandbytes
 ## Install CUDA
 conda run -n ${env_name} conda install cuda -c nvidia/label/cuda-12.2.2
 conda run -n ${env_name} conda install -c conda-forge gcc=12
@@ -64,9 +65,12 @@ conda run -n ${env_name} pip install -r requirements-dev.txt
 conda run -n ${env_name} cmake -DCOMPUTE_BACKEND=cuda -S .
 conda run -n ${env_name} make
 conda run -n ${env_name} pip install -e .
-
-cd ../..
+# Install L1RA
+cd ${repo_path}
 conda run -n ${env_name} pip install -r requirements.txt
-conda run -n ${env_name} conda env config vars set PYTHONPATH=${PYTHONPATH}:${PWD}/src/
+conda run -n ${env_name} conda env config vars set PYTHONPATH=${PYTHONPATH}:${repo_path}/src/
+# Install Memory-GELATO
+cd ${repo_path}/submodules/memory-gelato
+conda run -n ${env_name} pip install -e .
 
 exit 0
