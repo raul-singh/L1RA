@@ -1,7 +1,7 @@
 model_id: mistralai/Mistral-7B-v0.3
 seed: 42
 dataset_id: Open-Orca/OpenOrca
-subset: 0.02
+subset: 0.05
 max_seq_length: 1024
 quantization_bit: 4
 
@@ -19,9 +19,9 @@ adapter_config:
 
 training_args:
   output_dir: "experiment"
-  per_device_train_batch_size: 2
-  per_device_eval_batch_size: 4
-  gradient_accumulation_steps: 8
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.0001
   lr_scheduler_type: cosine
@@ -31,9 +31,6 @@ training_args:
   bf16: true
   max_grad_norm: 1.0
   optim: paged_adamw_32bit
-  optim_args:
-    is_paged: true
-    optim_bits: 32
   logging_steps: 0.1
   eval_strategy: "no"
   save_strategy: "no"
