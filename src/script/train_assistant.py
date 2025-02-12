@@ -339,7 +339,8 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
         regu_loss = 0
 
     trainer.model.eval()
-    logger.info("l1ra lambda: %f", trainer.model.peft_config["default"].l1ra_lambda)
+    if isinstance(adapter_config, L1RAConfig):
+        logger.info("l1ra lambda: %f", trainer.model.peft_config["default"].l1ra_lambda)
 
     tokenized_dataset = tokenize_dataset(dataset, tokenizer)
     test_loss = trainer.evaluate(eval_dataset=tokenized_dataset["test"])["eval_loss"]

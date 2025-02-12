@@ -1,7 +1,7 @@
 model_id: meta-llama/Meta-Llama-3-8B
 seed: 42
 dataset_id: Open-Orca/OpenOrca
-subset: 0.05
+subset: 0.02
 max_seq_length: 1024
 quantization_bit: 4
 
