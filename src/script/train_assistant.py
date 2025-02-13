@@ -1,9 +1,11 @@
 import logging
 import os
 import time
+import gc
 from datetime import datetime
 from itertools import product
 from copy import deepcopy
+from shutil import copy2
 import click
 import numpy as np
 import pandas as pd
@@ -362,10 +364,12 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
     return report
 
 
-def save_report(adapter_type, report):
+def save_report(adapter_type, report, config_file_path):
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
     directory = os.path.join("experiments", f"{adapter_type}-{timestamp}")
     os.makedirs(directory)
+
+    copy2(config_file_path, directory)
 
     report["history"].to_csv(
         os.path.join(directory, "history.csv"), index=False
@@ -499,7 +503,11 @@ def main(config_path):
                 dataset,
                 config
             )
-            save_report(adapter_type, report)
+            save_report(adapter_type, report, config_path)
+            # Clear model after training
+            del model
+            gc.collect()
+            torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':

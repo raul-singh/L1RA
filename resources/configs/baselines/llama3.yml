@@ -10,12 +10,15 @@ to_train:
   - adalora
 
 adapter_config:
-  r: 16
+  r: &r 16
   lora_alpha: 16
   lora_dropout: 0.1
   target_modules: all-linear
   bias: none
   task_type: CAUSAL_LM
+
+adalora_specific_args:
+  init_r: *r
 
 training_args:
   output_dir: "experiment"
