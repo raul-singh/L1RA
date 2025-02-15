@@ -213,16 +213,16 @@ def create_model(config):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        device_map="auto",
+        device_map='cuda',
         quantization_config=bnb_config,
-        trust_remote_code=True,
+        torch_dtype=torch.bfloat16
     )
     model.config.use_cache = False
     model.gradient_checkpointing_enable()
     model = prepare_model_for_kbit_training(model)
     logger.info("%s loaded.", model_id)
 
-    return model
+    return model.to('cuda')
 
 
 def create_adapter_config(config, adapter_type):
