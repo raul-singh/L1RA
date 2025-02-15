@@ -90,6 +90,9 @@ trainer.train()
 There is also `L1RATrainer` available, which is an extension of the basic `Trainer` from the `transformers` library. The interface is the same, and it can be used whenever the `L1RASFTTraner` does not fit the job.
 
 ## Build environment
+  
+> [!WARNING]  
+> Run all the scripts and the commands mentioned in this section **from the main repository directory**.
 
 As for now, L1RA requires a custom environment to run properly.
 We provide a script to install a conda environment to run our code.
@@ -103,7 +106,7 @@ Make sure you have:
   
 ### Main environment
 
-Run the following script **from the main repository directory** to build a conda environment named `l1ra` with CUDA 12.2:
+Run the following script to build a conda environment named `l1ra` with CUDA 12.2:
 
 ```bash
 bash ./build_env.sh
@@ -132,3 +135,30 @@ bash ./build_env_baselines.sh -h
 
 > [!NOTE]  
 > This part is necessary only to replicate the experiments and is not required to use L1RA.
+
+## Run experiments
+  
+> [!WARNING]  
+> Run all the scripts and the commands mentioned in this section **from the main repository directory**.
+
+To (re-)run the paper experiments use the dedicated script with this command
+
+```bash
+bash ./run_experiments.sh
+```
+
+To run it in background use the command
+
+```bash
+nohup bash ./run_experiments.sh > experiments_"$(date '+%Y_%m_%d_%H_%M_%S')".out &
+```
+
+> [!NOTE]  
+> The script expects that you built the main and baseline environments using the default names.
+
+## Acknowledgements
+
+- Raul Singh: ([raul.singh@mail.polimi.it](mailto:raul.singh@mail.polimi.it))
+- Nicolò Brunello ([nicolo.brunello@polimi.it](mailto:nicolo.brunello@polimi.it))
+- Vincenzo Scotti: ([vincenzo.scotti@kit.edu](mailto:vincenzo.scotti@kit.edu))
+- Mark James Carman: ([mark.carman@polimi.it](mailto:mark.carman@.polimi.it))
