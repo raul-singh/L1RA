@@ -1,4 +1,4 @@
-model_id: meta-llama/Meta-Llama-3-8B
+model_id: mistralai/Mistral-7B-v0.3
 seed: 42
 dataset_id: Open-Orca/OpenOrca
 subset: 0.02
@@ -10,8 +10,8 @@ to_train:
   - adalora
 
 adapter_config:
-  r: &r 16
-  lora_alpha: 16
+  r: &r 24
+  lora_alpha: 24
   lora_dropout: 0.1
   target_modules: all-linear
   bias: none

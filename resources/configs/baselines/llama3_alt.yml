@@ -6,12 +6,11 @@ max_seq_length: 1024
 quantization_bit: 4
 
 to_train:
-  - lora
   - adalora
 
 adapter_config:
-  r: &r 16
-  lora_alpha: 16
+  r: &r 24
+  lora_alpha: 24
   lora_dropout: 0.1
   target_modules: all-linear
   bias: none
