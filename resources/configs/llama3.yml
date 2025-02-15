@@ -5,7 +5,8 @@ subset: 0.02
 max_seq_length: 1024
 quantization_bit: 4
 
-to_train: [l1ra]
+to_train:
+  - l1ra
 
 adapter_config:
   r: 16
@@ -14,6 +15,10 @@ adapter_config:
   target_modules: all-linear
   bias: none
   task_type: CAUSAL_LM
+
+l1ra_specific_args:
+  l1ra_lambda: 0.005
+  eta_c: 0.02
 
 training_args:
   output_dir: "experiment"
@@ -27,7 +32,7 @@ training_args:
   weight_decay: 0.1
   num_train_epochs: 1
   bf16: true
-  max_grad_norm: 0.3
+  max_grad_norm: 1.0
   optim: paged_adame_32bit
   logging_steps: 0.1
   eval_strategy: "no"
