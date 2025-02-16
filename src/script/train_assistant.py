@@ -435,6 +435,9 @@ def cross_validation(cv_config, run_config):
             enumerate(kf.split(dataset["train"]), 1)
         ):
             logger.info("Fold %d.", fold)
+
+            torch.cuda.reset_peak_memory_stats()
+
             base_model = create_model(current_run_config)
             adapter_config = create_adapter_config(current_run_config, "l1ra")
 
@@ -454,6 +457,7 @@ def cross_validation(cv_config, run_config):
             )
             fold_reports.append(report)
             del base_model
+            gc.collect()
             torch.cuda.empty_cache()
 
         ppl_values = np.array([r["ppl"] for r in fold_reports])
@@ -494,6 +498,9 @@ def main(config_path):
         dataset = load_and_preprocess_dataset(config, tokenizer)
 
         for adapter_type in config["to_train"]:
+            # Reset memory stats
+            torch.cuda.reset_peak_memory_stats()
+            # Train
             adapter_config = create_adapter_config(config, adapter_type)
             model = create_model(config)
             report = train_and_evaluate(
