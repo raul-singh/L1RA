@@ -190,7 +190,7 @@ def tokenize_dataset(dataset, tokenizer):
             padding=True,
             truncation=True
         )
-        sample = {"input_ids": input_encodings.input_ids.cuda()}
+        sample = {"input_ids": input_encodings.input_ids.to('cuda:0')}
         return sample
 
     return dataset.map(tokenize_function, batched=True)
@@ -213,7 +213,7 @@ def create_model(config):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        device_map='cuda',
+        device_map='cuda:0',
         quantization_config=bnb_config,
         torch_dtype=torch.bfloat16
     )
@@ -222,7 +222,7 @@ def create_model(config):
     model = prepare_model_for_kbit_training(model)
     logger.info("%s loaded.", model_id)
 
-    return model.to('cuda')
+    return model
 
 
 def create_adapter_config(config, adapter_type):
