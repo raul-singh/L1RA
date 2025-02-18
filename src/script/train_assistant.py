@@ -199,6 +199,7 @@ def tokenize_dataset(dataset, tokenizer):
 def create_model(config):
     q_bit = config["quantization_bit"]
     model_id = config["model_id"]
+    token=config.get('token')
 
     if q_bit == 4:
         bnb_config = BitsAndBytesConfig(
@@ -215,7 +216,8 @@ def create_model(config):
         model_id,
         device_map='cuda:0',
         quantization_config=bnb_config,
-        torch_dtype=torch.bfloat16
+        torch_dtype=torch.bfloat16,
+        token=token
     )
     model.config.use_cache = False
     model.gradient_checkpointing_enable()
@@ -392,11 +394,13 @@ def save_report(adapter_type, report, config_file_path):
 def load_tokenizer(config):
     model_id = config["model_id"]
     max_seq_len = config["max_seq_length"]
+    token=config.get('token')
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_id,
         model_max_length=max_seq_len,
         padding_side="right",
+        token=token
     )
     tokenizer.pad_token = tokenizer.eos_token
     logger.info("%s tokenizer loaded.", model_id)
