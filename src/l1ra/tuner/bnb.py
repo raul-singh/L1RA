@@ -1,7 +1,6 @@
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 
 from peft.import_utils import is_bnb_4bit_available, is_bnb_available
 
