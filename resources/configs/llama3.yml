@@ -19,6 +19,7 @@ adapter_config:
 l1ra_specific_args:
   l1ra_lambda: 0.005
   eta_c: 0.02
+  rank_update_ratio: 0.05
 
 training_args:
   output_dir: "experiment"
