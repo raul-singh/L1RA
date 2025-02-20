@@ -7,6 +7,7 @@ from itertools import product
 from copy import deepcopy
 from shutil import copy2
 import click
+import math
 import numpy as np
 import pandas as pd
 import torch
@@ -227,8 +228,9 @@ def create_model(config):
     return model
 
 
-def create_adapter_config(config, adapter_type):
+def create_adapter_config(config, adapter_type, dataset=None):
     adapter_kwargs = config["adapter_config"]
+    # NOTE: When using gradient accumulation, one step is counted as one step with backward pass (see https://huggingface.co/docs/transformers/en/main_classes/trainer)
 
     if adapter_type == "l1ra":
         config_cls = L1RAConfig
@@ -236,8 +238,23 @@ def create_adapter_config(config, adapter_type):
     elif adapter_type == "lora":
         config_cls = LoraConfig
     elif adapter_type == "adalora":
+        training_steps = int(math.ceil(
+            len(dataset["train"]) / (
+                config['training_args'].get('per_device_train_batch_size', 1) *
+                config['training_args'].get('gradient_accumulation_steps', 1)
+            ))
+        )
+        warmup_steps = max(
+            config['training_args'].get('warmup_steps', 0),
+            int(math.ceil(training_steps * config['training_args'].get('warmup_ratio', 0.0)))
+        )
+
         config_cls = AdaLoraConfig
-        adapter_kwargs.update(config.get("adalora_specific_args", {}))
+        adapter_kwargs.update(
+            config.get("adalora_specific_args", {}) | {'total_step': training_steps, 'tinit': warmup_steps}
+        )
+    else:
+        raise ValueError()
 
     logger.info("Loading adapter config: %s", adapter_kwargs)
     return config_cls(**adapter_kwargs)
@@ -330,17 +347,6 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
     logger.info("Model succesfully trained.")
 
     logger.info("%s", [p for n,p in model.named_parameters() if "lora_c" in n])
-
-    regu_loss = 0
-    num_param = 0
-    for n, p in model.named_parameters():
-        if "lora_c" in n:
-            num_param += 1
-            regu_loss += torch.norm(torch.nn.functional.softmax(p, dim=0), p=1)
-    if num_param > 0:
-        regu_loss = regu_loss / num_param
-    else:
-        regu_loss = 0
 
     trainer.model.eval()
     if isinstance(adapter_config, L1RAConfig):
@@ -505,7 +511,7 @@ def main(config_path):
             # Reset memory stats
             torch.cuda.reset_peak_memory_stats()
             # Train
-            adapter_config = create_adapter_config(config, adapter_type)
+            adapter_config = create_adapter_config(config, adapter_type, dataset=dataset)
             model = create_model(config)
             report = train_and_evaluate(
                 model,
