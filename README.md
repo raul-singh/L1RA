@@ -118,6 +118,8 @@ To show all the available options, run:
 bash ./build_env.sh -h
 ```
 
+In case of problems with `triton` see this issue: https://github.com/bitsandbytes-foundation/bitsandbytes/issues/328#issuecomment-2660001212
+
 ### Baselines environment
 
 To replicate the baselines experiments, you will need a separate environment.
