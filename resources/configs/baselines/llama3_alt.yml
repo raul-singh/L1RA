@@ -19,6 +19,7 @@ adapter_config:
 adalora_specific_args:
   target_r: 12
   init_r: *r
+  budget_update_ratio: 0.05
 
 training_args:
   output_dir: "experiment"

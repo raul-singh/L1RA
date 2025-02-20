@@ -248,11 +248,14 @@ def create_adapter_config(config, adapter_type, dataset=None):
             config['training_args'].get('warmup_steps', 0),
             int(math.ceil(training_steps * config['training_args'].get('warmup_ratio', 0.0)))
         )
-
         config_cls = AdaLoraConfig
         adapter_kwargs.update(
             config.get("adalora_specific_args", {}) | {'total_step': training_steps, 'tinit': warmup_steps}
         )
+        if 'budget_update_ratio' in adapter_kwargs:
+            # DeltaT shouldn't always be 1 (see this example: https://github.com/huggingface/peft/blob/main/examples/int8_training/peft_adalora_whisper_large_training.py).
+            # We will set in configs same frequency of L1RA rank updates for fair comparison
+            adapter_kwargs['deltaT'] = max(1, int(math.ceil(training_steps * adapter_kwargs.pop('budget_update_ratio'))))
     else:
         raise ValueError()
 
