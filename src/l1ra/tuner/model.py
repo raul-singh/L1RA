@@ -226,19 +226,9 @@ class L1RAModel(LoraModel):
             and not evaluation
         ):
             # Calculate the orthogonal regularization
-            sparse_reg_weight = self.peft_config[
-                self.trainable_adapter_name
-            ].l1ra_lambda
-
-            r = self.peft_config[
-                self.trainable_adapter_name
-            ].r
-
-
+            sparse_reg_weight = self.peft_config[self.trainable_adapter_name].l1ra_lambda
             if sparse_reg_weight < 0:
-                raise ValueError(
-                    "sparse_reg_weight should be greater or equal than 0. "
-                )
+                raise ValueError("sparse_reg_weight should be greater or equal than 0.")
             """
             elif sparse_reg_weight > 0:
                 # L1 regularization computation
@@ -260,9 +250,9 @@ class L1RAModel(LoraModel):
 
     def set_threshold(self, lr):
         self.threshold = (
-            lr
-            * self.peft_config[self.trainable_adapter_name].l1ra_lambda
-            + self.peft_config[self.trainable_adapter_name].prune_threshold
+            lr *
+            self.peft_config[self.trainable_adapter_name].l1ra_lambda +
+            self.peft_config[self.trainable_adapter_name].prune_threshold
         )
 
     def normalize_c(self):
@@ -273,24 +263,18 @@ class L1RAModel(LoraModel):
                     A_matrix = p
 
                 if "lora_c" in n and self.trainable_adapter_name in n:
-
                     scale_factor = p.max()
                     p.mul_(gate_scale/scale_factor)
                     A_matrix.mul_(scale_factor)
-
                     A_matrix = None
 
-    def update_ranks(self, global_step, num_training_steps):
+    def update_ranks(self, global_step, num_training_steps, num_warmup_steps):
+        if 0 <= self.peft_config[self.trainable_adapter_name].rank_update_ratio < 1:
+            interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
+        else:
+            interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio)
 
-        interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
-        r = self.peft_config[
-                self.trainable_adapter_name
-            ].r
-
-        if (
-            global_step % interval != 0 or
-            global_step == 0
-        ):
+        if global_step % interval != 0 or global_step <= num_warmup_steps:
             return False
 
         t = self.threshold
@@ -424,11 +408,8 @@ class L1RAModel(LoraModel):
         else:
             active_adapter = self.active_adapter
         col_size = A.size()[0]
-        vector = (
-            torch.randn(col_size, 1).cuda()
-            * 1
-            / self.peft_config[active_adapter].r
-        )
+        vector = torch.randn(col_size, 1).cuda() * 1 / self.peft_config[active_adapter].r
+
         return torch.cat([A, vector], dim=1)
 
     def expand_B(self, B):
