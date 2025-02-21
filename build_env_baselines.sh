@@ -46,7 +46,7 @@ conda create -n ${env_name} python=3.12 -y
 mkdir -p ${CONDA_PREFIX}/envs/${env_name}/local
 # Install L1RA
 cd ${repo_path}
-conda run -n ${env_name} pip install -r requirements.txt
+conda run -n ${env_name} pip install -r requirements_baseline.txt
 conda run -n ${env_name} conda env config vars set PYTHONPATH=${PYTHONPATH}:${repo_path}/src/
 # Install Memory-GELATO
 cd ${repo_path}/submodules/memory-gelato
