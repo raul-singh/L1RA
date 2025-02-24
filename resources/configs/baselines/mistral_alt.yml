@@ -10,7 +10,7 @@ to_train:
 
 adapter_config:
   r: &r 16
-  lora_alpha: 16
+  lora_alpha: 12
   lora_dropout: 0.1
   target_modules: all-linear
   bias: none
