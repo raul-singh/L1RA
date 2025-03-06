@@ -347,7 +347,7 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
     peak_mem_usage = torch.cuda.max_memory_allocated()
     time_taken = end - start
 
-    logger.info("Model succesfully trained.")
+    logger.info("Model successfully trained.")
 
     logger.info("%s", [p for n,p in model.named_parameters() if "lora_c" in n])
 
