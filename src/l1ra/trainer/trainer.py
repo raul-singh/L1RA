@@ -361,7 +361,8 @@ class L1RATrainer(Trainer):
 
     def training_step(self, model, inputs):
         num_training_steps = self.num_training_steps * self.args.gradient_accumulation_steps
-        updated = model.update_ranks(self.real_step, num_training_steps)
+        num_warmup_steps = num_training_steps * self.args.warmup_steps
+        updated = model.update_ranks(self.real_step, num_training_steps, num_warmup_steps)
         if updated:
             self.restart_optimizer()
         self.real_step += 1
