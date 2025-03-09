@@ -218,7 +218,7 @@ def create_model(config, adapter_config):
         # device_map='cuda:0',
         quantization_config=bnb_config,
         torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=False,
+        # low_cpu_mem_usage=False,
         token=token
     ).to('cuda:0')
     model.config.use_cache = False
@@ -533,4 +533,7 @@ def main(config_path):
 
 
 if __name__ == '__main__':
+    from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
+    print('DeepSpeed enabled:', is_deepspeed_zero3_enabled())
+
     main()
