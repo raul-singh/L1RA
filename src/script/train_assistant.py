@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 import yaml
 from datasets import DatasetDict, load_dataset
-from peft import AdaLoraConfig, LoraConfig, prepare_model_for_kbit_training
+from peft import AdaLoraConfig, LoraConfig, prepare_model_for_kbit_training, get_peft_model
 from sklearn.model_selection import KFold
 from tqdm.auto import tqdm
 from transformers import (
@@ -197,7 +197,7 @@ def tokenize_dataset(dataset, tokenizer):
     return dataset.map(tokenize_function, batched=True)
 
 
-def create_model(config):
+def create_model(config, adapter_config):
     q_bit = config["quantization_bit"]
     model_id = config["model_id"]
     token=config.get('token')
@@ -224,6 +224,8 @@ def create_model(config):
     model.gradient_checkpointing_enable()
     model = prepare_model_for_kbit_training(model)
     logger.info("%s loaded.", model_id)
+
+    model = get_peft_model(model, adapter_config)
 
     return model
 
@@ -331,7 +333,6 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset.get("validation", None),
-        peft_config=adapter_config,
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
         tokenizer=tokenizer,
         dataset_text_field="text",
@@ -515,7 +516,7 @@ def main(config_path):
             torch.cuda.reset_peak_memory_stats()
             # Train
             adapter_config = create_adapter_config(config, adapter_type, dataset=dataset)
-            model = create_model(config)
+            model = create_model(config, adapter_config)
             report = train_and_evaluate(
                 model,
                 tokenizer,
