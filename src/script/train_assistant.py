@@ -218,6 +218,7 @@ def create_model(config, adapter_config):
         device_map='cuda:0',
         quantization_config=bnb_config,
         torch_dtype=torch.bfloat16,
+        low_cpu_mem_usage=False,
         token=token
     )
     model.config.use_cache = False
