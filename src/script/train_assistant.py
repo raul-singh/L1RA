@@ -533,7 +533,4 @@ def main(config_path):
 
 
 if __name__ == '__main__':
-    from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
-    print('DeepSpeed enabled:', is_deepspeed_zero3_enabled())
-
     main()

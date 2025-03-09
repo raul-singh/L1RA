@@ -34,7 +34,7 @@ training_args:
   num_train_epochs: 1
   bf16: true
   max_grad_norm: 1.0
-  optim: paged_adame_32bit
+  optim: adame_32bit
   logging_steps: 0.1
   eval_strategy: "no"
   save_strategy: "no"
