@@ -215,12 +215,12 @@ def create_model(config, adapter_config):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        device_map='cuda:0',
+        # device_map='cuda:0',
         quantization_config=bnb_config,
         torch_dtype=torch.bfloat16,
         # low_cpu_mem_usage=False,
         token=token
-    )  # .to('cuda:0')
+    ).to('cuda:0')
     model.config.use_cache = False
     model.gradient_checkpointing_enable()
     model = prepare_model_for_kbit_training(model)
