@@ -427,7 +427,7 @@ def cross_validation(cv_config, run_config):
     cv_report = []
 
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-    directory = os.path.join("experiments", f"cv-{run_config["model_id"]}-{timestamp}")
+    directory = os.path.join("experiments", f"cv-{run_config['model_id']}-{timestamp}")
     os.makedirs(directory)
 
     cv_configs = (
