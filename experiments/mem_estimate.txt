@@ -1,0 +1,24 @@
+model: mistralai/Mistral-7B-v0.3
+adapter: lora
+rank: 16
+memory estimate: 15.238296508789062
+adapter: adalora
+rank: 24
+memory estimate: 15.55087661743164
+rank: 16
+memory estimate: 15.238349914550781
+adapter: l1ra
+rank: 16
+memory estimate: 15.238349914550781
+model: meta-llama/Meta-Llama-3.1-8B
+adapter: lora
+rank: 16
+memory estimate: 21.103408813476562
+adapter: adalora
+rank: 24
+memory estimate: 21.57227897644043
+rank: 16
+memory estimate: 21.10348892211914
+adapter: l1ra
+rank: 16
+memory estimate: 21.10348892211914
