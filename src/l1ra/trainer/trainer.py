@@ -215,7 +215,7 @@ class L1RASFTTrainer(SFTTrainer):
             "eps": args.adam_epsilon,
         }
         if args.optim in [OptimizerNames.ADAME, OptimizerNames.ADAME_BNB]:
-            from bitsandbytes import AdamE
+            from bitsandbytes.optim import AdamE
 
             optimizer_cls = AdamE
             optimizer_kwargs.update(adam_kwargs)
@@ -403,7 +403,7 @@ class L1RATrainer(Trainer):
             "eps": args.adam_epsilon,
         }
         if args.optim in [OptimizerNames.ADAME, OptimizerNames.ADAME_BNB]:
-            from bitsandbytes import AdamE
+            from bitsandbytes.optim import AdamE
 
             optimizer_cls = AdamE
             optimizer_kwargs.update(adam_kwargs)
