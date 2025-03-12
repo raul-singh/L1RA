@@ -3,17 +3,16 @@ import os
 import time
 import gc
 from datetime import datetime
-from itertools import product
-from copy import deepcopy
 from shutil import copy2
 import click
 import math
 import numpy as np
 import pandas as pd
 import torch
+from torch.cuda.amp import GradScaler
 import yaml
 from datasets import DatasetDict, load_dataset
-from peft import AdaLoraConfig, LoraConfig, prepare_model_for_kbit_training, get_peft_model
+from peft import AdaLoraConfig, LoraConfig, prepare_model_for_kbit_training, get_peft_model, PeftModel
 from sklearn.model_selection import KFold
 from tqdm.auto import tqdm
 from transformers import (
@@ -23,10 +22,17 @@ from transformers import (
     BitsAndBytesConfig,
     DataCollatorForLanguageModeling,
     TrainingArguments,
+    PreTrainedModel,
+    PreTrainedTokenizer
 )
-from trl import SFTTrainer, SFTConfig
+import torchmetrics
 
 from l1ra import L1RAConfig, L1RASFTTrainer
+
+from bitsandbytes.optim import PagedAdamE32bit
+
+from typing import Dict, Union, Optional, Tuple, List
+
 
 ADAPTER_CONFIG_TO_TRAINER_MAPPING = {
     L1RAConfig: L1RASFTTrainer,
@@ -60,14 +66,14 @@ logging.basicConfig(
 )
 
 
-def load_config(path: str):
+def load_config(path: str) -> Dict:
     with open(path, "r") as file:
         config = yaml.safe_load(file)
 
     return config
 
 
-def load_guanaco(config, tokenizer, validation_split=0.1):
+def load_guanaco(config: Dict, tokenizer: PreTrainedTokenizer, validation_split: float = 0.1) -> DatasetDict:
     seed = config.get("seed", 42)
     dataset_id = config["dataset_id"]
 
@@ -102,7 +108,9 @@ def load_guanaco(config, tokenizer, validation_split=0.1):
     return dataset.map(preprocess)
 
 
-def load_open_orca(config, tokenizer, validation_split=0.1, test_split=0.1):
+def load_open_orca(
+        config: Dict, tokenizer: PreTrainedTokenizer, validation_split: float = 0.1, test_split: float = 0.1
+) -> DatasetDict:
     seed = config.get("seed", 42)
     dataset_id = config["dataset_id"]
 
@@ -155,7 +163,7 @@ def load_open_orca(config, tokenizer, validation_split=0.1, test_split=0.1):
     return dataset.map(preprocess)
 
 
-def load_and_preprocess_dataset(config, tokenizer):
+def load_and_preprocess_dataset(config: Dict, tokenizer: PreTrainedTokenizer) -> DatasetDict:
     if tokenizer.chat_template is None:
         tokenizer.chat_template = chat_template
 
@@ -183,21 +191,23 @@ def load_and_preprocess_dataset(config, tokenizer):
     return dataset
 
 
-def tokenize_dataset(dataset, tokenizer):
-    def tokenize_function(examples):
-        input_encodings = tokenizer(
-            examples["text"],
+def get_collate(tokeniser: PreTrainedTokenizer):
+    def collate(batch):
+        input_encodings = tokeniser(
+            [sample['text'] for sample in batch],
             return_tensors="pt",
             padding=True,
             truncation=True
         )
-        sample = {"input_ids": input_encodings.input_ids.to('cuda:0')}
-        return sample
+        input_encodings['labels'] = input_encodings['input_ids'].clone()
+        input_encodings['labels'][~input_encodings['input_ids'].bool()] = -100
 
-    return dataset.map(tokenize_function, batched=True)
+        return input_encodings
+
+    return collate
 
 
-def create_model(config, adapter_config):
+def create_model(config: Dict, adapter_config: Union[LoraConfig, AdaLoraConfig, L1RAConfig]) -> PeftModel:
     q_bit = config["quantization_bit"]
     model_id = config["model_id"]
     token=config.get('token')
@@ -219,7 +229,8 @@ def create_model(config, adapter_config):
         quantization_config=bnb_config,
         torch_dtype=torch.bfloat16,
         # low_cpu_mem_usage=False,
-        token=token
+        token=token,
+        attn_implementation='flash_attention_2'
     ).to('cuda:0')
     model.config.use_cache = False
     model.gradient_checkpointing_enable()
@@ -231,7 +242,9 @@ def create_model(config, adapter_config):
     return model
 
 
-def create_adapter_config(config, adapter_type, dataset=None):
+def create_adapter_config(
+        config: Dict, adapter_type: str, dataset: Optional[DatasetDict] = None
+) -> Union[LoraConfig, AdaLoraConfig, L1RAConfig]:
     adapter_kwargs = config["adapter_config"]
     # NOTE: When using gradient accumulation, one step is counted as one step with backward pass (see https://huggingface.co/docs/transformers/en/main_classes/trainer)
 
@@ -266,7 +279,7 @@ def create_adapter_config(config, adapter_type, dataset=None):
     return config_cls(**adapter_kwargs)
 
 
-def compute_n_adapter_params(model):
+def compute_n_adapter_params(model: PeftModel) -> int:
     params = 0
 
     for n, p in model.named_parameters():
@@ -276,13 +289,12 @@ def compute_n_adapter_params(model):
     return params
 
 
-def rank_evolution(trainer, model_id):
-    model = trainer.model.base_model
+def rank_evolution(model: PeftModel, model_id: str, training_steps) -> pd.DataFrame:
+    model = model.base_model
     rank_evolution = model.rank_evolution
 
     n_layers = AutoConfig.from_pretrained(model_id).num_hidden_layers
     model_shape = (n_layers, len(rank_evolution[0])//n_layers)
-    training_steps = trainer.num_training_steps * trainer.args.gradient_accumulation_steps
     update_steps = int(training_steps * model.peft_config["default"].rank_update_ratio)
 
     ranks = []
@@ -319,32 +331,180 @@ def rank_evolution(trainer, model_id):
     return df
 
 
-def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
-    args = config["training_args"]
-    #args.update({"dataset_text_field": "text", "max_seq_length": config["max_seq_length"]})
-    training_args = TrainingArguments(**args)
-    trainer_cls = ADAPTER_CONFIG_TO_TRAINER_MAPPING[type(adapter_config)]
+def create_optimiser(
+        model: PeftModel, dataloader: torch.utils.data.DataLoader, config: Dict, adapter_type: str
+) -> Tuple[PagedAdamE32bit, Optional[torch.optim.lr_scheduler.OneCycleLR]]:
+    if adapter_type in ('lora', 'adalora'):
+        optimiser = PagedAdamE32bit(
+            [p for n, p in model.named_parameters() if 'lora' in n and 'lora_c' not in n],
+            lr=config['training_args']['learning_rate'],
+            lasso=0.0,
+            weight_decay=config['training_args'].get('weight_decay', 0.01)
+        )
+    elif adapter_type in ('l1ra',):
+        optimiser = PagedAdamE32bit(
+            [
+                {
+                    'params': [p for n, p in model.named_parameters() if 'lora_c' in n],
+                    'weight_decay': 0.0,
+                    'lr': model.peft_config["default"].eta_c
+                },
+                {'params': [p for n, p in model.named_parameters() if 'lora' in n and 'lora_c' not in n], 'lasso': 0.0}
+            ],
+            lr=config['training_args']['learning_rate'],
+            lasso=model.peft_config["default"].l1ra_lambda,
+            weight_decay=config['training_args'].get('weight_decay', 0.01)
+        )
+    else:
+        raise ValueError()
 
-    logger.debug("Training %s with args:\n%s", config["model_id"], training_args)
+    lr_scheduler = None
+    if config['training_args'].get('lr_scheduler_type') is not None:
+        training_steps = int(math.ceil(
+            len(dataloader) / (
+                config['training_args'].get('per_device_train_batch_size', 1) *
+                config['training_args'].get('gradient_accumulation_steps', 1)
+            ))
+        )
+        lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimiser,
+            [p['lr'] for p in optimiser.param_groups],
+            training_steps,
+            pct_start=config['training_args'].get('warmup_ratio', 0.0)
+        )
+        if adapter_type == 'l1ra':
+            optimiser.param_groups[0]['lr'] = model.peft_config["default"].eta_c
+
+    return optimiser, lr_scheduler
+
+
+def restart_optimiser(
+        optimiser: PagedAdamE32bit,
+        lr_scheduler: Optional[torch.optim.lr_scheduler.OneCycleLR],
+        model: PeftModel,
+        dataloader: DatasetDict,
+        config: Dict,
+        adapter_type: str
+) -> Tuple[PagedAdamE32bit, Optional[torch.optim.lr_scheduler.OneCycleLR]]:
+    learning_rates = [p['lr'] for p in optimiser.param_groups]
+    optimiser = create_optimiser(model, dataloader, config, adapter_type)
+    for p, lr in zip(optimiser.param_groups, learning_rates):
+        p['lr'] = lr
+
+    if lr_scheduler is not None:
+        lr_scheduler.optimizer = optimiser
+
+    return optimiser, lr_scheduler
+
+
+def train(
+        model: PeftModel,
+        dataloader: torch.utils.data.DataLoader,
+        optimiser: PagedAdamE32bit,
+        lr_scheduler: Optional[torch.optim.lr_scheduler.OneCycleLR],
+        config: Dict,
+        adapter_type: str
+) -> List[Dict]:
+    model.train()
+
+    max_grad_norm = config['training_args'].get('max_grad_norm')
+    scaler = GradScaler() if config['training_args'].get('bf16', True) else None
+
+    total_steps = config['training_args'].get('num_train_epochs') * int(
+        math.ceil(len(dataloader) / config['training_args'].get('gradient_accumulation_steps', 1))
+    )
+    warmup_steps = int(math.ceil(total_steps * config['training_args'].get('warmup_ratio', 0.0)))
+    step = 0
+
+    history = []
+    training_loss = None
 
     start = time.time()
 
-    trainer = trainer_cls(
-        model=model,
-        args=training_args,
-        train_dataset=dataset["train"],
-        eval_dataset=dataset.get("validation", None),
-        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
-        tokenizer=tokenizer,
-        dataset_text_field="text",
-        max_seq_length=config["max_seq_length"]
-    )
+    for epoch in range(config['training_args'].get('num_train_epochs', 1)):
+        for i, batch in enumerate(tqdm(dataloader, desc="Training")):
+            if scaler is not None:
+                with torch.autocast(device_type=torch.device('cuda:0').type, dtype=torch.bfloat16):
+                    output = model(**batch.to(model.device))
+                    loss = output.loss / config['training_args'].get('gradient_accumulation_steps', 1)
+                scaler.scale(loss).backward()
+            else:
+                output = model(**batch.to(model.device))
+                loss = output.loss / config['training_args'].get('gradient_accumulation_steps', 1)
+                loss.backward()
+            training_loss = (training_loss + loss.detach()) if training_loss is not None else loss.detach()
+            if (i + 1) % config['training_args'].get('gradient_accumulation_steps', 1) == 0 or i + 1 == len(dataloader):
+                if max_grad_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(optimiser.parameters(), max_grad_norm)
+                if scaler is not None:
+                    scaler.step(optimiser)
+                    scaler.update()
+                else:
+                    optimiser.step()
+                if adapter_type == 'adalora':
+                    model.base_model.update_and_allocate(step)
+                if adapter_type == 'l1ra':
+                    updated = model.update_ranks(step, total_steps, warmup_steps)
+                    if updated:
+                        optimiser, lr_scheduler = restart_optimiser(
+                            optimiser, lr_scheduler, model, dataloader, config, adapter_type
+                        )
+                optimiser.zero_grad()
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
+                    if adapter_type == 'l1ra':
+                        optimiser.param_groups[0]['lr'] = model.peft_config["default"].eta_c
+                if (step + 1) % int(total_steps * config['training_args'].get('logging_steps', 1.0)) or (
+                        epoch + 1 == config['training_args'].get('num_train_epochs', 1) and i + 1 == len(dataloader)
+                ):
+                    history.append({
+                        'step': step,
+                        'training_loss': training_loss.item(),
+                        'epoch': epoch + (i + 1 / len(dataloader)),
+                        'elapsed_time': time.time() - start,
+                    } | {
+                        f'lr_param_group_{i}': p['lr'] for i, p in enumerate(optimiser.param_groups)
+                    })
+                training_loss = None
+                step += 1
 
-    trainer.train()
+    return history
+
+
+@torch.no_grad()
+def eval(model: PeftModel, dataloader: torch.utils.data.DataLoader) -> Tuple[float, float]:
+    loss = []
+    metric = torchmetrics.text.Perplexity(ignore_index=-100).to(model.device)
+
+    for batch in tqdm(dataloader, desc="Evaluation"):
+        output = model(**batch.to(model.device))
+        loss.append(output.loss)
+        metric(output.logits[:, :-1], batch.labels[:, 1:])
+
+    loss = torch.cat(loss).mean().cpu().item()
+    ppl = metric.compute()
+
+    return loss, ppl
+
+def train_and_evaluate(
+        model: PeftModel, tokeniser: PreTrainedTokenizer, adapter_config: Dict, dataset, config: Dict, adapter_type: str
+):
+    train_dataloader = torch.utils.data.DataLoader(
+        dataset['train'],
+        batch_size=config['training_args'].get('per_device_train_batch_size', 1),
+        shuffle=True,
+        collate_fn=get_collate(tokeniser),
+        workers=8
+    )
+    optimiser, lr_scheduler = create_optimiser(model, train_dataloader, config, adapter_type)
+
+    start = time.time()
+
+    history = train(model, train_dataloader, optimiser, lr_scheduler, config, adapter_type)
 
     end = time.time()
 
-    history = pd.DataFrame(trainer.state.log_history)
+    history = pd.DataFrame(history)
     adapter_params = compute_n_adapter_params(model)
     peak_mem_usage = torch.cuda.max_memory_allocated()
     time_taken = end - start
@@ -353,31 +513,37 @@ def train_and_evaluate(model, tokenizer, adapter_config, dataset, config):
 
     logger.info("%s", [p for n,p in model.named_parameters() if "lora_c" in n])
 
-    trainer.model.eval()
+    model.eval()
     if isinstance(adapter_config, L1RAConfig):
-        logger.info("l1ra lambda: %f", trainer.model.peft_config["default"].l1ra_lambda)
+        logger.info("l1ra lambda: %f", model.peft_config["default"].l1ra_lambda)
 
-    tokenized_dataset = tokenize_dataset(dataset, tokenizer)
-    test_loss = trainer.evaluate(eval_dataset=tokenized_dataset["test"])["eval_loss"]
-    ppl = float(np.exp(test_loss))
+    test_dataloader = torch.utils.data.DataLoader(
+        dataset['test'],
+        batch_size=config['training_args'].get('per_device_eval_batch_size', 1),
+        collate_fn=get_collate(tokeniser),
+        workers=8
+    )
+
+    test_loss, test_ppl = eval(model, test_dataloader)
+
     logger.info("Test loss: %f", test_loss)
-    logger.info("Test perplexity: %f", ppl)
+    logger.info("Test perplexity: %f", test_ppl)
 
     report = {
-        "history": history,
+        "history": pd.DataFrame(history),
         "adapter_params": adapter_params,
         "peak_mem_usage": peak_mem_usage,
         "time_taken": time_taken,
-        "ppl": ppl,
+        "ppl": test_ppl
     }
 
     if isinstance(adapter_config, L1RAConfig):
-        report["rank_evolution"] = rank_evolution(trainer, config["model_id"])
+        report["rank_evolution"] = rank_evolution(model, config["model_id"], history['step'].values[-1])
 
     return report
 
 
-def save_report(adapter_type, report, config_file_path):
+def save_report(adapter_type: str, report: Dict, config_file_path: str):
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
     directory = os.path.join("experiments", f"{adapter_type}-{timestamp}")
     os.makedirs(directory)
@@ -402,7 +568,7 @@ def save_report(adapter_type, report, config_file_path):
     logger.info("Training report saved in %s", directory)
 
 
-def load_tokenizer(config):
+def load_tokenizer(config: Dict) -> PreTrainedTokenizer:
     model_id = config["model_id"]
     max_seq_len = config["max_seq_length"]
     token=config.get('token')
@@ -419,117 +585,34 @@ def load_tokenizer(config):
     return tokenizer
 
 
-def cross_validation(cv_config, run_config):
-    K = cv_config["cv_k"]
-    kf = KFold(n_splits=K)
-
-    tokenizer = load_tokenizer(run_config)
-    dataset = load_and_preprocess_dataset(run_config, tokenizer)
-    cv_report = []
-
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-    directory = os.path.join("experiments", f"cv-{run_config['model_id']}-{timestamp}")
-    os.makedirs(directory)
-
-    cv_configs = (
-        dict(zip(cv_config['param_grid'].keys(), values)) for values in product(*cv_config['param_grid'].values())
-    )
-
-    for cv_config_ in cv_configs:
-
-        fold_reports = []
-
-        logger.info(f"Performing {K}-fold cross-validation -- Current config: {repr(cv_config_)}")
-
-        current_run_config = deepcopy(run_config)
-        for k, v in cv_config_.items():
-            k, param = k.split('__')
-            current_run_config[k][param] = v
-
-        for fold, (train_idx, val_idx) in (
-            enumerate(kf.split(dataset["train"]), 1)
-        ):
-            logger.info("Fold %d.", fold)
-
-            torch.cuda.reset_peak_memory_stats()
-
-            base_model = create_model(current_run_config)
-            adapter_config = create_adapter_config(current_run_config, "l1ra")
-
-            train_dataset = dataset["train"].select(train_idx)
-            val_dataset = dataset["train"].select(val_idx)
-
-            fold_dataset = DatasetDict(
-                {"train": train_dataset, "test": val_dataset}
-            )
-
-            report = train_and_evaluate(
-                base_model,
-                tokenizer,
-                adapter_config,
-                fold_dataset,
-                current_run_config
-            )
-            fold_reports.append(report)
-            del base_model
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        ppl_values = np.array([r["ppl"] for r in fold_reports])
-        param_values = np.array([r["adapter_params"] for r in fold_reports])
-
-        ppl_mean = ppl_values.mean()
-        ppl_std = ppl_values.std()
-        param_mean = param_values.mean()
-        param_std = param_values.std()
-
-        logger.info(f"{K} folds completed.")
-        logger.info(f"Perplexity: mean={ppl_mean}, std={ppl_std}")
-        logger.info(f"Params: mean={param_mean}, std={param_std}")
-        cv_report.append((*cv_config_.values(), ppl_mean, ppl_std, param_mean, param_std))
-
-        df = pd.DataFrame(
-            cv_report,
-            columns=[*cv_config_.keys(), "ppl_mean", "ppl_std", "param_mean", "param_std"]
-        )
-        df.to_csv(os.path.join(directory, "cross-validation.csv"), index=False)
-
-    logger.info(f"Cross-validation report saved at \"{directory}\"")
-
-
 @click.command()
 @click.option('--config-path', help='Path of training/cv config file.')
 def main(config_path):
     config = load_config(config_path)
     os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-    if "cv_k" in config:
-        configs = [load_config(c) for c in config["run_cv_on"]]
-        for run in configs:
-            cross_validation(config, run)
+    tokenizer = load_tokenizer(config)
+    dataset = load_and_preprocess_dataset(config, tokenizer)
 
-    else:
-        tokenizer = load_tokenizer(config)
-        dataset = load_and_preprocess_dataset(config, tokenizer)
-
-        for adapter_type in config["to_train"]:
-            # Reset memory stats
-            torch.cuda.reset_peak_memory_stats()
-            # Train
-            adapter_config = create_adapter_config(config, adapter_type, dataset=dataset)
-            model = create_model(config, adapter_config)
-            report = train_and_evaluate(
-                model,
-                tokenizer,
-                adapter_config,
-                dataset,
-                config
-            )
-            save_report(adapter_type, report, config_path)
-            # Clear model after training
-            del model
-            gc.collect()
-            torch.cuda.empty_cache()
+    for adapter_type in config["to_train"]:
+        # Reset memory stats
+        torch.cuda.reset_peak_memory_stats()
+        # Train
+        adapter_config = create_adapter_config(config, adapter_type, dataset=dataset)
+        model = create_model(config, adapter_config)
+        report = train_and_evaluate(
+            model,
+            tokenizer,
+            adapter_config,
+            dataset,
+            config,
+            adapter_type
+        )
+        save_report(adapter_type, report, config_path)
+        # Clear model after training
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':
