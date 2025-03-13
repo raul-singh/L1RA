@@ -476,7 +476,7 @@ def eval(model: PeftModel, dataloader: torch.utils.data.DataLoader) -> Tuple[flo
         metric(output.logits[:, :-1], batch.labels[:, 1:])
 
     loss = torch.cat(loss).mean().cpu().item()
-    ppl = metric.compute()
+    ppl = metric.compute().cpu().item()
 
     return loss, ppl
 
