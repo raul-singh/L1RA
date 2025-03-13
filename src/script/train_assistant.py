@@ -194,7 +194,7 @@ def get_collate(tokeniser: PreTrainedTokenizer):
             truncation=True
         )
         input_encodings['labels'] = input_encodings['input_ids'].clone()
-        input_encodings['labels'][~input_encodings['input_ids'].bool()] = -100
+        input_encodings['labels'][~input_encodings['attention_mask'].bool()] = -100
 
         return input_encodings
 
