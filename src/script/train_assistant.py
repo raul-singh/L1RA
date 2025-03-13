@@ -448,7 +448,7 @@ def train(
                     lr_scheduler.step()
                     if adapter_type == 'l1ra':
                         optimiser.param_groups[0]['lr'] = model.peft_config["default"].eta_c
-                if (step + 1) % int(total_steps * config['training_args'].get('logging_steps', 1.0)) or (
+                if (step + 1) % int(math.ceil(total_steps * config['training_args'].get('logging_steps', 1.0))) or (
                         epoch + 1 == config['training_args'].get('num_train_epochs', 1) and i + 1 == len(dataloader)
                 ):
                     history.append({
