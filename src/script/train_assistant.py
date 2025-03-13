@@ -27,18 +27,12 @@ from transformers import (
 )
 import torchmetrics
 
-from l1ra import L1RAConfig, L1RASFTTrainer
+from l1ra import L1RAConfig
 
 from bitsandbytes.optim import PagedAdamE32bit
 
 from typing import Dict, Union, Optional, Tuple, List
 
-
-ADAPTER_CONFIG_TO_TRAINER_MAPPING = {
-    L1RAConfig: L1RASFTTrainer,
-    LoraConfig: SFTTrainer,
-    AdaLoraConfig: SFTTrainer,  # TODO
-}
 
 chat_template = '''{% if (messages | first).role != 'system' %}The following is a chat between a human user (referred to as "User") and an AI assistant (referred to as "Assistant") knowledgeable in all sort of subjects. 
 The assistant is very respectful, honest and it always answer as helpfully as possible, while being safe. 
