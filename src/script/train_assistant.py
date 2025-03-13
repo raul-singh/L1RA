@@ -488,7 +488,7 @@ def train_and_evaluate(
         batch_size=config['training_args'].get('per_device_train_batch_size', 1),
         shuffle=True,
         collate_fn=get_collate(tokeniser),
-        workers=8
+        num_workers=8
     )
     optimiser, lr_scheduler = create_optimiser(model, train_dataloader, config, adapter_type)
 
@@ -515,7 +515,7 @@ def train_and_evaluate(
         dataset['test'],
         batch_size=config['training_args'].get('per_device_eval_batch_size', 1),
         collate_fn=get_collate(tokeniser),
-        workers=8
+        num_workers=8
     )
 
     test_loss, test_ppl = eval(model, test_dataloader)
