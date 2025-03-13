@@ -472,7 +472,7 @@ def eval(model: PeftModel, dataloader: torch.utils.data.DataLoader) -> Tuple[flo
 
     for batch in tqdm(dataloader, desc="Evaluation"):
         output = model(**batch.to(model.device))
-        loss.append(output.loss)
+        loss.append(output.loss.unsqueeze(0))
         metric(output.logits[:, :-1], batch.labels[:, 1:])
 
     loss = torch.cat(loss).mean().cpu().item()
