@@ -429,7 +429,7 @@ def train(
             training_loss = (training_loss + loss.detach()) if training_loss is not None else loss.detach()
             if (i + 1) % config['training_args'].get('gradient_accumulation_steps', 1) == 0 or i + 1 == len(dataloader):
                 if max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(optimiser.parameters(), max_grad_norm)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 if scaler is not None:
                     scaler.step(optimiser)
                     scaler.update()
