@@ -5,7 +5,7 @@ import re
 
 import torch
 from transformers.pytorch_utils import Conv1D
-import torch.nn.functional as F
+import math
 
 from peft.import_utils import is_bnb_4bit_available, is_bnb_available
 from peft.tuners.lora import LoraConfig, LoraModel
@@ -272,7 +272,9 @@ class L1RAModel(LoraModel):
     def update_ranks(self, global_step, num_training_steps, num_warmup_steps):
         logging.info(f'Rank update: global_step: {global_step}, num_training_steps: {num_training_steps}, num_warmup_steps: {num_warmup_steps}, rank_update_ratio: {self.peft_config[self.trainable_adapter_name].rank_update_ratio}')
         if 0 <= self.peft_config[self.trainable_adapter_name].rank_update_ratio < 1:
-            interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
+            interval = int(math.ceil(
+                self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps
+            ))
         else:
             interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio)
 
