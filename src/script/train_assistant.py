@@ -413,6 +413,9 @@ def train(
     history = []
     training_loss = None
 
+    if adapter_type == 'l1ra':
+        model.set_threshold(config['training_args']['learning_rate'])
+
     start = time.time()
 
     for epoch in range(config['training_args'].get('num_train_epochs', 1)):
