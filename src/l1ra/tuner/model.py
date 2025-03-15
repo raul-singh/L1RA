@@ -1,4 +1,5 @@
 import warnings
+import logging
 from itertools import chain
 import re
 
@@ -269,9 +270,7 @@ class L1RAModel(LoraModel):
                     A_matrix = None
 
     def update_ranks(self, global_step, num_training_steps, num_warmup_steps):
-        print('#' * 32)
-        print(f'Rank update: global_step: {global_step}, num_training_steps: {num_training_steps}, num_warmup_steps: {num_warmup_steps}, rank_update_ratio: {self.peft_config[self.trainable_adapter_name].rank_update_ratio}')
-        print('#' * 32)
+        logging.info(f'Rank update: global_step: {global_step}, num_training_steps: {num_training_steps}, num_warmup_steps: {num_warmup_steps}, rank_update_ratio: {self.peft_config[self.trainable_adapter_name].rank_update_ratio}')
         if 0 <= self.peft_config[self.trainable_adapter_name].rank_update_ratio < 1:
             interval = int(self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps)
         else:
