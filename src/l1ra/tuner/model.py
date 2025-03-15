@@ -270,7 +270,13 @@ class L1RAModel(LoraModel):
                     A_matrix = None
 
     def update_ranks(self, global_step, num_training_steps, num_warmup_steps):
-        logging.info(f'Rank update: global_step: {global_step}, num_training_steps: {num_training_steps}, num_warmup_steps: {num_warmup_steps}, rank_update_ratio: {self.peft_config[self.trainable_adapter_name].rank_update_ratio}')
+        logging.info(
+            f'Rank update: '
+            f'global_step: {global_step}, '
+            f'num_training_steps: {num_training_steps}, '
+            f'num_warmup_steps: {num_warmup_steps}, '
+            f'rank_update_ratio: {self.peft_config[self.trainable_adapter_name].rank_update_ratio}'
+        )
         if 0 <= self.peft_config[self.trainable_adapter_name].rank_update_ratio < 1:
             interval = int(math.ceil(
                 self.peft_config[self.trainable_adapter_name].rank_update_ratio * num_training_steps
