@@ -354,11 +354,8 @@ def create_optimiser(
 
     lr_scheduler = None
     if config['training_args'].get('lr_scheduler_type') is not None:
-        training_steps = int(math.ceil(
-            len(dataloader) / (
-                # config['training_args'].get('per_device_train_batch_size', 1) *
-                config['training_args'].get('gradient_accumulation_steps', 1)
-            ))
+        training_steps = config['training_args'].get('num_train_epochs') * int(
+            math.ceil(len(dataloader) / config['training_args'].get('gradient_accumulation_steps', 1))
         )
         lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimiser,
@@ -381,7 +378,7 @@ def restart_optimiser(
         adapter_type: str
 ) -> Tuple[PagedAdamE32bit, Optional[torch.optim.lr_scheduler.OneCycleLR]]:
     learning_rates = [p['lr'] for p in optimiser.param_groups]
-    optimiser = create_optimiser(model, dataloader, config, adapter_type)
+    optimiser, _ = create_optimiser(model, dataloader, config, adapter_type)
     for p, lr in zip(optimiser.param_groups, learning_rates):
         p['lr'] = lr
 
