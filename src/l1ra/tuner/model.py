@@ -287,6 +287,15 @@ class L1RAModel(LoraModel):
         if global_step % interval != 0 or global_step <= num_warmup_steps:
             return False
 
+        logging.info(
+            f'Rank update: '
+            f'global_step: {global_step}, '
+            f'num_training_steps: {num_training_steps}, '
+            f'num_warmup_steps: {num_warmup_steps}, '
+            f'rank_update_ratio: {self.peft_config[self.trainable_adapter_name].rank_update_ratio}'
+            f'interval: {interval}'
+        )
+
         t = self.threshold
 
         block_names = []
