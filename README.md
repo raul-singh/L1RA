@@ -1,8 +1,16 @@
 # L1RA: L1-Regularised Rank Assignment in LoRA Fine-Tuning
 
-L1RA: L1-Regularised Rank Assignment in LoRA Fine-Tuning is a method that dynamically reassigns LoRA ranks during fine-tuning.  This is the repository of MSc thesis held at Politecnico di Milano in Computer Science and Engineering.
+L1RA: L1-Regularised Rank Assignment in LoRA Fine-Tuning is a method that dynamically reassigns LoRA ranks during fine-tuning.  
 
-L1RA automatically prunes and reassign ranks during the training process of a model. This allows the model to better optimize its rank distribution, instead of being constant like in LoRA. L1RA is aimed to have almost no discernible impact on training time and memory.
+L1RA automatically prunes and reassigns ranks during the training process of a model. 
+This allows the model to better optimize its rank distribution, instead of being constant like in LoRA. 
+L1RA is aimed to have almost no discernible impact on training time and memory.
+
+We presented L1RA in a [research paper](https://it.overleaf.com/read/hfykdnvkcvqt#e6f14e) at [ICNLSP 2025](https://www.icnlsp.org/2025welcome/).
+To cite our work, please refer to the [Section References](#references)
+The original project was developed as an [M.Sc. Thesis](https://www.politesi.polimi.it/handle/10589/223901) in Computer Science and Engineering at Politecnico di Milano.
+
+L1RA includes the [🍦 Memory-GELATO ](https://github.com/raul-singh/memory-gelato) submodule to estimate training hyperparameters to fit in the GPU memory given the LLM, the data and the GPU specifications.
 
 ## Basic Usage
 
@@ -122,7 +130,7 @@ In case of problems with `triton` see this issue: https://github.com/bitsandbyte
 
 ### Baselines environment
 
-To replicate the baselines experiments, you will need a separate environment.
+To replicate the baseline experiments, you will need a separate environment.
 Run the following script **from the main repository directory** to build a conda environment named `l1ra_baseline` with CUDA 12.2:
 
 ```bash
@@ -156,7 +164,26 @@ nohup bash ./run_experiments.sh > experiments_"$(date '+%Y_%m_%d_%H_%M_%S')".out
 ```
 
 > [!NOTE]  
-> The script expects that you built the main and baseline environments using the default names.
+> The script expects that you build the main and baseline environments using the default names.
+
+## References
+
+BibTeX entry to cite our work:
+
+```bibtex
+@inproceedings{singh-etal-2025-l1ra,
+    title = "L1RA: Dynamic Rank Assignment in LoRA Fine-Tuning",
+    author = "Singh, Raul  and
+      Brunello, Nicol{\`o}  and
+      Scotti, Vincenzo  and
+      Carman, Mark",
+    booktitle = "Proceedings of the 8th International Conference on Natural Language and Speech Processing (ICNLSP 2025)",
+    month = aug,
+    year = "2025",
+    address = "Odense, Denmark",
+    publisher = "Association for Computational Linguistics"
+}
+```
 
 ## Acknowledgements
 
