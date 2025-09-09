@@ -6,7 +6,7 @@ L1RA automatically prunes and reassigns ranks during the training process of a m
 This allows the model to better optimize its rank distribution, instead of being constant like in LoRA. 
 L1RA is aimed to have almost no discernible impact on training time and memory.
 
-We presented L1RA in a [research paper](https://arxiv.org/abs/2509.04884) and a [poster session]([https://arxiv.org/abs/2509.04884](https://www.overleaf.com/read/czhqtqccbxmd#37b4a9)) at [ICNLSP 2025](https://www.icnlsp.org/2025welcome/).
+We presented L1RA in a [research paper](https://arxiv.org/abs/2509.04884) and a [poster session]([https://www.overleaf.com/read/czhqtqccbxmd#37b4a9]) at [ICNLSP 2025](https://www.icnlsp.org/2025welcome/).
 To cite our work, please refer to the [Section References](#references)
 The original project was developed as an [M.Sc. Thesis](https://www.politesi.polimi.it/handle/10589/223901) in Computer Science and Engineering at Politecnico di Milano.
 
