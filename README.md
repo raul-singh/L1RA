@@ -6,7 +6,7 @@ L1RA automatically prunes and reassigns ranks during the training process of a m
 This allows the model to better optimize its rank distribution, instead of being constant like in LoRA. 
 L1RA is aimed to have almost no discernible impact on training time and memory.
 
-We presented L1RA in a [research paper](https://arxiv.org/abs/2509.04884) and a [poster session](https://www.overleaf.com/read/czhqtqccbxmd#37b4a9) at [ICNLSP 2025](https://www.icnlsp.org/2025welcome/).
+We presented L1RA in a [research paper](https://aclanthology.org/2025.icnlsp-1.35/) and a [poster session](https://www.overleaf.com/read/czhqtqccbxmd#37b4a9) at [ICNLSP 2025](https://www.icnlsp.org/2025welcome/).
 To cite our work, please refer to the [Section References](#references)
 The original project was developed as an [M.Sc. Thesis](https://www.politesi.polimi.it/handle/10589/223901) in Computer Science and Engineering at Politecnico di Milano.
 
@@ -172,16 +172,21 @@ BibTeX entry to cite our work:
 
 ```bibtex
 @inproceedings{singh-etal-2025-l1ra,
-    title = "L1RA: Dynamic Rank Assignment in LoRA Fine-Tuning",
+    title = "{L}1{RA}: Dynamic Rank Assignment in {L}o{RA} Fine-Tuning",
     author = "Singh, Raul  and
       Brunello, Nicol{\`o}  and
       Scotti, Vincenzo  and
       Carman, Mark",
-    booktitle = "Proceedings of the 8th International Conference on Natural Language and Speech Processing (ICNLSP 2025)",
+    editor = "Abbas, Mourad  and
+      Yousef, Tariq  and
+      Galke, Lukas",
+    booktitle = "Proceedings of the 8th International Conference on Natural Language and Speech Processing (ICNLSP-2025)",
     month = aug,
     year = "2025",
-    address = "Odense, Denmark",
-    publisher = "Association for Computational Linguistics"
+    address = "Southern Denmark University, Odense, Denmark",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2025.icnlsp-1.35/",
+    pages = "360--373"
 }
 ```
 
